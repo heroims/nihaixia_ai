@@ -36,12 +36,18 @@ _H3_RE = re.compile(r"^###\s+(.+?)\s*$", re.M)
 _NAME_SEP_RE = re.compile(r"[、，,/\s]+")
 
 # 明显非穴位标题（跳过整段）
-_SKIP_HEADING_SUB = ("治症", "全解", "三分法", "时间选穴", "详解", "待补")
+_SKIP_HEADING_SUB = ("治症", "总览", "全解", "三分法", "时间选穴", "详解", "待补")
 # 无括号却会误判的段落标题（名称本身即非穴位）
 _SKIP_HEADING_WORD = {"井荣俞经合"}
 
 # 穴位名结尾后缀清理（顺序敏感）
 _DROP_SUFFIX_RE = re.compile(r"穴$|穴详解$|详解$")
+
+
+def _drop_suffix(name: str) -> str:
+    """去穴名结尾后缀；余下不足 2 字时保留原文（没有合法的 1 字穴名）。"""
+    stripped = _DROP_SUFFIX_RE.sub("", name).strip()
+    return stripped if len(stripped) >= 2 else name.strip()
 
 
 def _is_acup_section(title: str) -> bool:
@@ -62,17 +68,23 @@ def _parse_heading(title: str):
     """
     if any(s in title for s in _SKIP_HEADING_SUB):
         return None, ""
-    match = re.findall(r"[（(]([^（()）]*)[)）]", title)
+    match = re.findall(r"[（(]([^（）]*(?:（[^（）]*）[^（）]*)*)[)）]", title)
     base = _clean_paren(title).strip()
-    paren = match[-1].strip() if match else ""
+    paren = ""
+    for grp in match:
+        token = re.split(r"[·、，；（）/]", grp.strip())[0].strip()
+        if _MERIDIAN_RE.match(token):
+            paren = grp.strip()
+            break
+    if not paren and match:
+        paren = match[-1].strip()
     base = _clean_paren(base).strip()
     base = base.replace("奇穴：", "")
     if not base or len(base) > 24:
         return None, ""
     names = []
     for raw in _NAME_SEP_RE.split(base):
-        name = re.sub(r"[^\u4e00-\u9fff]+$", "", raw.strip())
-        name = _DROP_SUFFIX_RE.sub("", name).strip()
+        name = _drop_suffix(re.sub(r"[^\u4e00-\u9fff]+$", "", raw.strip()))
         if not name or not re.search(r"[\u4e00-\u9fff]", name):
             continue
         if len(name) > 5 or name in _SKIP_HEADING_WORD:
@@ -112,7 +124,7 @@ def _bullet_meridian(h3_title: str) -> str:
 
 
 def _clean_bullet_name(raw: str) -> str:
-    name = _DROP_SUFFIX_RE.sub("", raw.strip()).strip()
+    name = _drop_suffix(raw.strip())
     if not re.search(r"[\u4e00-\u9fff]", name):
         return ""
     if not (1 <= len(name) <= 5) or name in _SKIP_HEADING_WORD:
