@@ -9,6 +9,12 @@ def test_split_sections_splits_h2():
     assert [s.title for s in secs] == ["诊断公式一：太阳病", "诊断公式二：阳明病"]
 
 
+def test_split_sections_level3():
+    md = "# 标题\n\n### 太阳病篇·条文1\n\n内容A\n\n### 太阳病篇·条文2\n\n内容B"
+    secs = split_sections(md, level=3)
+    assert [s.title for s in secs] == ["太阳病篇·条文1", "太阳病篇·条文2"]
+
+
 def test_extract_first_table():
     md = "| 分型 | 治法 |\n|------|------|\n| 中风 | 解肌 |\n| 伤寒 | 发汗 |"
     rows = extract_first_table(md)

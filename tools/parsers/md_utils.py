@@ -10,13 +10,13 @@ class Section:
     title: str
     body: str
 
-_H2_RE = re.compile(r"^\s*##\s+(.+?)\s*$", re.M)
 _CODE_FENCE_RE = re.compile(r"```[\s\S]*?```")
 
 
-def split_sections(md: str) -> list[Section]:
-    """按 ## 二级标题切分。返回 body 部分（不含标题行）。"""
-    matches = list(_H2_RE.finditer(md))
+def split_sections(md: str, level: int = 2) -> list[Section]:
+    """按指定级别标题切分（默认 ## 二级）。返回 body 部分（不含标题行）。"""
+    pattern = re.compile(rf"^\s*#{{{level}}}\s+(.+?)\s*$", re.M)
+    matches = list(pattern.finditer(md))
     out: list[Section] = []
     for i, m in enumerate(matches):
         title = m.group(1).strip()
