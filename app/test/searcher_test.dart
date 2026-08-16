@@ -38,11 +38,38 @@ void main() {
       expect(res.first.heading, '第1条');
     });
 
-    test('multiword AND requires all words', () async {
+    test('multiword partial match: full match ranks above single-match (I1)',
+        () async {
       await insert('太阳之为病，脉浮，头项强痛而恶寒。');
       await insert('太阳之为病，脉浮。');
 
       final res = await Searcher.searchRawChunks(db, ['脉浮', '恶寒']);
+
+      expect(res, hasLength(2));
+      expect(res.first.text, contains('恶寒'));
+      expect(res.last.text, contains('脉浮'));
+      expect(res.last.text, isNot(contains('恶寒')));
+    });
+
+    test('partial match: row with 2 of 3 andTerms included, 1 of 3 excluded (I1)',
+        () async {
+      await insert('太阳中风，脉浮，恶寒，头痛。');
+      await insert('太阳之为病，脉浮，恶寒。');
+      await insert('太阳之为病，脉浮。');
+
+      final res = await Searcher.searchRawChunks(db, ['脉浮', '恶寒', '头痛']);
+
+      expect(res, hasLength(2));
+      expect(res.first.text, contains('头痛'));
+      expect(res.any((h) => h.text == '太阳之为病，脉浮。'), isFalse);
+    });
+
+    test('explicit minMatch restores strict AND (I1)', () async {
+      await insert('太阳之为病，脉浮，恶寒。');
+      await insert('太阳之为病，脉浮。');
+
+      final res = await Searcher.searchRawChunks(db, ['脉浮', '恶寒'],
+          minMatch: 2);
 
       expect(res, hasLength(1));
       expect(res.single.text, contains('恶寒'));
@@ -185,6 +212,51 @@ void main() {
 
       expect(await Searcher.searchByQuery(db, '不存在的词xyz'), isEmpty);
     });
+
+    test('short non-vocab CJK query recalls exact-phrase rows (C1)', () async {
+      await insert('饮食不节，消化不良，脘腹胀满。');
+      await insert('脾胃虚弱，消化不良，食欲不振。');
+      await insert('伤食者，消化不良，嗳腐吞酸。');
+      await insert('太阳之为病，脉浮，头项强痛而恶寒。');
+
+      final res = await Searcher.searchByQuery(db, '消化不良');
+
+      expect(res, hasLength(3));
+      expect(res.first.text, contains('消化不良'));
+      expect(res.any((h) => h.text.contains('脉浮')), isFalse);
+    });
+
+    test('whole-run exact phrase outranks single 2-gram hit (C1/M2)', () async {
+      await insert('太阳之为病，项背强几几，反汗出恶风者，桂枝加葛根汤主之。');
+      await insert('身热，自汗，项背强，脉浮者。');
+
+      final res = await Searcher.searchByQuery(db, '项背强几几');
+
+      expect(res, hasLength(2));
+      expect(res.first.text, contains('项背强几几'));
+      expect(res.last.text, isNot(contains('项背强几几')));
+    });
+
+    test('orTerm hit ranks above same-andTerm row without it (M1)', () async {
+      await insert('脉浮，恶寒，头项强痛。');
+      await insert('恶寒发热者，发于阳也。');
+
+      final res = await Searcher.searchRawChunks(db, ['恶寒'],
+          orTerms: ['脉浮']);
+
+      expect(res, hasLength(2));
+      expect(res.first.text, contains('脉浮'));
+    });
+
+    test('LIKE backslash is escaped (M1)', () async {
+      await insert(r'恶\寒发热者，阴阳俱紧。');
+      await insert('恶寒发热者，发于阳也。');
+
+      final res = await Searcher.searchRawChunks(db, [r'恶\寒']);
+
+      expect(res, hasLength(1));
+      expect(res.single.text, contains(r'恶\寒'));
+    });
   });
 
   group('QueryTerms.extract', () {
@@ -198,11 +270,40 @@ void main() {
       expect(terms.orTerms, isNotEmpty);
     });
 
-    test('short CJK runs produce no orTerms', () {
+    test('short CJK runs produce whole-run orTerm only (C1)', () {
       final terms = QueryTerms.extract('感冒 发热');
 
       expect(terms.andTerms, containsAll(['感冒', '发热']));
-      expect(terms.orTerms, isEmpty);
+      expect(terms.orTerms, contains('感冒发热'));
+      expect(terms.wholeRuns, contains('感冒发热'));
+    });
+
+    test('function words stay out of andTerms (I3)', () {
+      final terms = QueryTerms.extract('汤药');
+      expect(terms.andTerms, isEmpty);
+      expect(terms.orTerms, contains('汤药'));
+
+      final terms2 = QueryTerms.extract('用什么方');
+      expect(terms2.andTerms, isEmpty);
+      expect(terms2.orTerms, contains('用什么方'));
+    });
+
+    test('herb names become andTerms, not 汤 (I3)', () {
+      final terms = QueryTerms.extract('小柴胡汤');
+      expect(terms.andTerms, contains('柴胡'));
+      expect(terms.andTerms, isNot(contains('汤')));
+      expect(terms.orTerms, contains('小柴胡汤'));
+
+      final gzt = QueryTerms.extract('桂枝汤');
+      expect(gzt.andTerms, contains('桂枝'));
+      expect(gzt.orTerms, contains('桂枝汤'));
+    });
+
+    test('short non-vocab query emits whole-run orTerm (C1)', () {
+      final terms = QueryTerms.extract('消化不良');
+      expect(terms.andTerms, isEmpty);
+      expect(terms.orTerms, contains('消化不良'));
+      expect(terms.wholeRuns, contains('消化不良'));
     });
 
     test('deduplicates andTerms and orTerms', () {
@@ -219,7 +320,7 @@ void main() {
       final terms = QueryTerms.extract('  感冒   发热 ');
 
       expect(terms.andTerms, containsAll(['感冒', '发热']));
-      expect(terms.orTerms, isEmpty);
+      expect(terms.orTerms, contains('感冒发热'));
     });
   });
 }

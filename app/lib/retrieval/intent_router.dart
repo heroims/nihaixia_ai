@@ -10,8 +10,13 @@ class IntentRouter {
     '腰痛', '自汗', '盗汗'];
 
   /// 方剂/药物术语（public：供 QueryTerms 拆分 andTerms）。
+  /// 常用药材名取自 tools/out/kb.sqlite3 herbs 表的现代正名（该表内为古名：
+  /// 茈胡=柴胡、黄耆=黄芪、牡桂=桂枝）。加入药材名后「小柴胡汤」→ andTerms=[柴胡]
+  /// 而非仅 [汤]（Fix I3）。
   static const formulaKeywords = ['汤', '方', '怎么用', '剂量', '什么时候用',
-    '附子', '黄芪', '人参', '当归', '桂枝', '麻黄', '芍药'];
+    '附子', '黄芪', '人参', '当归', '桂枝', '麻黄', '芍药',
+    '柴胡', '葛根', '白术', '茯苓', '甘草', '生姜', '大枣',
+    '干姜', '黄连', '黄芩', '半夏', '细辛', '五味子', '龙骨', '牡蛎'];
 
   static Intent classify(String query) {
     final q = query.trim();
