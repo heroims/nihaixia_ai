@@ -19,45 +19,46 @@ def test_build_creates_all_tables(tmp_path, repo_dir):
     con.close()
 
 
-def test_fts5_virtual_table_created(tmp_path, repo_dir):
+def test_raw_chunks_retrievable(tmp_path, repo_dir):
     from build_kb import build_database
     db = build_database(output_dir=tmp_path, repo_dir=repo_dir)
     con = sqlite3.connect(db)
-    row = con.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='chunks_fts'").fetchone()
-    assert row is not None
+    n = con.execute("SELECT COUNT(*) FROM raw_chunks WHERE text IS NOT NULL AND text != ''").fetchone()[0]
+    assert n > 0
     con.close()
 
 
-def test_raw_chunks_have_tokens(tmp_path, repo_dir):
+def test_text_like_recall(tmp_path, repo_dir):
     from build_kb import build_database
     db = build_database(output_dir=tmp_path, repo_dir=repo_dir)
     con = sqlite3.connect(db)
-    n = con.execute("SELECT COUNT(*) FROM raw_chunks WHERE tokens IS NOT NULL AND tokens != ''").fetchone()[0]
-    total = con.execute("SELECT COUNT(*) FROM raw_chunks").fetchone()[0]
-    assert n == total
+    n = con.execute("SELECT COUNT(*) FROM raw_chunks WHERE text LIKE '%桂枝%'").fetchone()[0]
+    assert n >= 500
     con.close()
 
 
-def test_chunks_fts_token_recall(tmp_path, repo_dir):
+def test_text_like_multiword_and(tmp_path, repo_dir):
     from build_kb import build_database
     db = build_database(output_dir=tmp_path, repo_dir=repo_dir)
     con = sqlite3.connect(db)
-    n = con.execute("SELECT COUNT(*) FROM raw_chunks WHERE tokens LIKE '%桂枝%'").fetchone()[0]
-    assert n >= 100
-    con.close()
-
-
-def test_chunks_fts_multiword_and(tmp_path, repo_dir):
-    from build_kb import build_database
-    db = build_database(output_dir=tmp_path, repo_dir=repo_dir)
-    con = sqlite3.connect(db)
-    n = con.execute("SELECT COUNT(*) FROM raw_chunks WHERE tokens LIKE '%怕冷%' AND tokens LIKE '%无汗%'").fetchone()[0]
+    n = con.execute("SELECT COUNT(*) FROM raw_chunks WHERE text LIKE '%怕冷%' AND text LIKE '%无汗%'").fetchone()[0]
     assert n >= 1
     con.close()
 
 
-def test_cjkutil_tokens(tmp_path):
-    from parsers.cjkutil import cut_for_index, tokens_for_query
-    assert "桂枝" in cut_for_index("桂枝汤主之")
-    assert tokens_for_query("怕冷 没汗") == ["怕冷", "没汗"]
-    assert tokens_for_query("怕冷，怕冷") == ["怕冷", "，"]
+def test_raw_chunks_structure(tmp_path, repo_dir):
+    from build_kb import build_database
+    db = build_database(output_dir=tmp_path, repo_dir=repo_dir)
+    con = sqlite3.connect(db)
+    cols = [r[1] for r in con.execute("PRAGMA table_info(raw_chunks)")]
+    assert cols == ["id", "source", "heading", "text"]
+    con.close()
+
+
+def test_no_chunks_fts(tmp_path, repo_dir):
+    from build_kb import build_database
+    db = build_database(output_dir=tmp_path, repo_dir=repo_dir)
+    con = sqlite3.connect(db)
+    row = con.execute("SELECT name FROM sqlite_master WHERE name='chunks_fts'").fetchone()
+    assert row is None
+    con.close()
