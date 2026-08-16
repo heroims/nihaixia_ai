@@ -1,7 +1,10 @@
 class Synonyms {
+  // 部分名别名：柴胡汤 是 小/大柴胡汤 的子串，直接 replaceAll 会把
+  // 小柴胡汤 叠加成 小小柴胡汤，故用负向回顾断言排除「大小」前缀。
+  static final RegExp _chaihuTangRe = RegExp(r'(?<![大小])柴胡汤');
+
   static const Map<String, String> _table = {
     // 方剂别名（计划 Task 13）
-    '柴胡汤': '小柴胡汤',
     '大柴胡': '大柴胡汤',
     '桂枝方': '桂枝汤',
     '麻黄方': '麻黄汤',
@@ -18,11 +21,13 @@ class Synonyms {
   };
 
   static String canonicalize(String text) {
+    var result = text.replaceAll(_chaihuTangRe, '小柴胡汤');
     for (final entry in _table.entries) {
-      if (text.contains(entry.key)) {
-        return text.replaceAll(entry.key, entry.value);
-      }
+      if (!result.contains(entry.key)) continue;
+      // 已含正名时跳过，避免 大柴胡汤→大柴胡汤汤 之类的叠加
+      if (result.contains(entry.value)) continue;
+      return result.replaceAll(entry.key, entry.value);
     }
-    return text;
+    return result;
   }
 }

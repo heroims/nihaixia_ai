@@ -18,11 +18,21 @@ void main() {
     test('无法识别回退 general', () {
       expect(IntentRouter.classify('你好呀'), Intent.general);
     });
+  test('识别高频症状查询', () {
+      expect(IntentRouter.classify('咳嗽怎么治'), Intent.diagnosis);
+    });
+    test('识别症状口语别名', () {
+      expect(IntentRouter.classify('拉肚子'), Intent.diagnosis);
+    });
   });
 
   group('synonyms', () {
     test('别名归正', () {
       expect(Synonyms.canonicalize('柴胡汤'), '小柴胡汤');
+    });
+    test('部分名不叠加替换', () {
+      expect(Synonyms.canonicalize('小柴胡汤'), '小柴胡汤');
+      expect(Synonyms.canonicalize('大柴胡汤'), '大柴胡汤');
     });
     test('无别名原样返回', () {
       expect(Synonyms.canonicalize('桂枝汤'), '桂枝汤');
