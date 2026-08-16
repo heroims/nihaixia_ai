@@ -16,6 +16,7 @@ from parsers.tiaowen import parse_tiaowen
 from parsers.cases import parse_cases
 from parsers.acupoints import parse_acupoints
 from parsers.chunker import chunk_markdown
+from parsers.cjkutil import cut_for_index
 
 # modules/*.md 文件名 -> 描述性 source 名（用于 raw_chunks）
 _MODULE_SOURCES: dict[str, str] = {
@@ -87,7 +88,7 @@ def build_database(output_dir: pathlib.Path, repo_dir: pathlib.Path) -> pathlib.
           name TEXT, meridian TEXT, location TEXT, indications TEXT, body TEXT);
         CREATE TABLE raw_chunks(
           id INTEGER PRIMARY KEY AUTOINCREMENT,
-          source TEXT, heading TEXT, text TEXT);
+          source TEXT, heading TEXT, text TEXT, tokens TEXT);
     """)
 
     # 1. herbs
@@ -158,15 +159,16 @@ def build_database(output_dir: pathlib.Path, repo_dir: pathlib.Path) -> pathlib.
             continue
         md = p.read_text(encoding="utf-8", errors="ignore")
         for c in chunk_markdown(md, source=src):
-            con.execute("INSERT INTO raw_chunks(source,heading,text) VALUES(?,?,?)",
-                        (c.source, c.heading, c.text))
+            con.execute("INSERT INTO raw_chunks(source,heading,text,tokens) VALUES(?,?,?,?)",
+                        (c.source, c.heading, c.text, cut_for_index(c.text)))
 
-    # 7. FTS5 BM25 索引（raw_chunks.text 剪枝后）
+    # 7. FTS5 BM25 索引 —— 索引 jieba token 列（空格分词后 unicode61 把每个词当独立 token），
+    #    并保留 text 为外部内容列，SELECT 时仍能取出原文。
     con.executescript("""
         CREATE VIRTUAL TABLE chunks_fts USING fts5(
-          text, content='raw_chunks', content_rowid='id', tokenize='unicode61');
-        INSERT INTO chunks_fts(rowid, text)
-          SELECT id, text FROM raw_chunks;
+          tokens, text, content='raw_chunks', content_rowid='id', tokenize='unicode61');
+        INSERT INTO chunks_fts(rowid, tokens, text)
+          SELECT id, tokens, text FROM raw_chunks;
     """)
 
     con.commit()
