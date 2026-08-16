@@ -26,6 +26,9 @@ class Herb:
     dosage: str = ""
     taboo: str = ""
     raw: str = ""
+    original: str = ""    # 原文
+    rongchuan: str = ""   # 容川
+    ni_zhu: str = ""      # 倪注
 
 
 def parse_herbs(md: str) -> list[Herb]:
@@ -66,6 +69,12 @@ def parse_herbs(md: str) -> list[Herb]:
                     current.dosage = val
                 elif field == "禁忌":
                     current.taboo = val
+                elif field == "原文":
+                    current.original = val
+                elif field == "容川":
+                    current.rongchuan = val
+                elif field == "倪注":
+                    current.ni_zhu = val
     if current is not None:
         herbs.append(current)
     # 去重保序。
