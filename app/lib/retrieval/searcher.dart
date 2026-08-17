@@ -5,8 +5,10 @@ import 'package:nihaixia_app/retrieval/query_terms.dart';
 /// 检索器：对本地 raw_chunks 语料执行子串检索。
 ///
 /// 不走 FTS5：对中文语料，unicode61 分词 recall 差且 App 端无分词器。
-/// 方案：andTerms/orTerms 全部作为 OR LIKE 子串条件进 SQL（只过滤不强截断），
-/// 行级「部分命中」过滤、启发式打分与排序在 Dart 侧完成，最后取 limit 条。
+/// 方案：andTerms 走「and-only 的 text/heading OR LIKE」进 SQL（保留结果的
+/// 超集，拉取行数从 and∪or 降到 and-only，约 8× 减少）；andTerms 为空时
+/// 退化为 orTerms OR LIKE。行级「部分命中」过滤、启发式打分与排序在 Dart 侧
+/// 完成，最后取 limit 条。
 class Searcher {
   /// 来源白名单：source → 加分。浓缩资料（distilled 01/02/03）权重高；
   /// 医案集量大（约 520/2673 行），降为 +2 避免压过精炼条文。
@@ -36,15 +38,21 @@ class Searcher {
 
   /// 对 raw_chunks.text 做子串检索。
   ///
-  /// SQL 的 WHERE 是全部词（and+or）的 OR LIKE 并集——只负责把「至少命中一个词」
-  /// 的行拉下来，避免 orTerms-only 查询全表扫描（Fix I2）；行级过滤在 Dart 侧。
+  /// SQL WHERE 策略：andTerms 非空时只用 andTerms 的 OR LIKE 并集，且每个
+  /// andTerm 同时匹配 text 与 heading（(text LIKE ? OR heading LIKE ?)）。
+  /// 因为 Dart 保留条件 hitCount >= minHit >= 1——凡被保留的行必命中至少一个
+  /// andTerm，故 and-only 过滤是保留结果的超集（不改变结果，仅减少拉取行数，
+  /// Fix R2）；heading 进 WHERE 让「标题命中、正文未命中」的 andTerm 行被有
+  /// 意识地拉取（Dart 侧本就计入 hitCount 与 +4 标题分）。andTerms 为空时
+  /// 退化为 orTerms OR LIKE（Fix I2）。行级过滤在 Dart 侧。
   ///
   /// 部分命中（Fix I1）：多症状查询若严格 AND 几乎必然召回悬崖（感冒+发热+恶寒+
   /// 无汗+头痛 五个症状同时出现概率极低）。因此 [andTerms] 改为「至少命中
   /// [minMatch] 个不同词」即保留，默认阈值 N<=2 → 1（单/双症状召回不缩水，
   /// 感冒+怕冷 由严格 AND 的 ~14 行回到 OR 并集的 ~208 行，按命中数排序），
-  /// N>=3 → ceil(N/2)（五行证候至少中三行）。排序按
-  /// (命中 andTerms 数 desc, score desc, id asc)。
+  /// N>=3 → ceil(N/2)（五行证候至少中三行）。[minMatch] 被夹取到 [1, N]：
+  /// <=0 按 1 处理（命中 0 个 andTerm 的行永远不相关），>N 按 N（严格全命中）。
+  /// 排序按 (命中 andTerms 数 desc, score desc, id asc)。
   static Future<List<SearchHit>> searchRawChunks(
     DatabaseConnectionUser db,
     List<String> andTerms, {
@@ -60,7 +68,15 @@ class Searcher {
     if (n == 0 && ors.isEmpty) return const [];
     if (limit <= 0) return const [];
 
-    final minHit = minMatch ?? (n <= 2 ? 1 : (n + 1) ~/ 2);
+    // 不变量（Fix R2）：n > 0 时 minHit >= 1（命中 0 个 andTerm 的行永远不
+    // 相关，不能因 minMatch<=0 被保留成近全库返回），上界收敛到 n（minMatch>n
+    // 视作严格全命中）。n == 0 时走 orTerms 路径，minHit 不使用。
+    final int minHit;
+    if (n > 0) {
+      minHit = (minMatch ?? (n <= 2 ? 1 : (n + 1) ~/ 2)).clamp(1, n).toInt();
+    } else {
+      minHit = 0;
+    }
 
     // LIKE 通配符转义：反斜杠、%、_ 都按字面匹配（Fix M1 / 上一轮 Fix 3）。
     String escape(String term) => term
@@ -68,18 +84,36 @@ class Searcher {
         .replaceAll('%', r'\%')
         .replaceAll('_', r'\_');
 
-    // SQL WHERE 为全部词（and+or，整段短语已在 or 里）的 OR LIKE 并集。
-    final allTerms = <String>{...andTerms, ...ors};
-    final escaped = [for (final t in allTerms) escape(t)];
+    // SQL WHERE 策略：andTerms 非空时只对 andTerms 过滤（每词同时匹配 text 与
+    // heading），因为保留条件 hitCount >= minHit >= 1，被保留的行必命中至少一个
+    // andTerm，and-only 是保留结果的超集（结果不变，拉取行数 8× 减少）。
+    // andTerms 为空时退化为 orTerms OR LIKE。仍不设 LIMIT、ORDER BY id 保证
+    // 多次查询返回顺序确定。
+    final String whereClause;
+    final List<Variable<Object>> args;
+    if (n > 0) {
+      final escaped = [for (final t in andTerms.toSet()) escape(t)];
+      whereClause = [
+        for (final _ in escaped)
+          "(text LIKE ? ESCAPE '\\' OR heading LIKE ? ESCAPE '\\')",
+      ].join(' OR ');
+      args = [
+        for (final t in escaped) ...[
+          Variable('%$t%'),
+          Variable('%$t%'),
+        ],
+      ];
+    } else {
+      final escaped = [for (final t in ors) escape(t)];
+      whereClause = [
+        for (final _ in escaped) "text LIKE ? ESCAPE '\\'",
+      ].join(' OR ');
+      args = [for (final t in escaped) Variable('%$t%')];
+    }
 
-    final conditions = List.filled(escaped.length, "text LIKE ? ESCAPE '\\'");
-    final args = <Variable<Object>>[for (final t in escaped) Variable('%$t%')];
-
-    // 全量拉取（不设 LIMIT），ORDER BY id 保证多次查询返回顺序确定。
-    // 注意：SQL 只按 text 过滤，heading 命中不进 WHERE、仅参与打分（Fix M5）。
     final rows = await db.customSelect(
       'SELECT id, source, heading, text FROM raw_chunks '
-      'WHERE ${conditions.join(' OR ')} '
+      'WHERE $whereClause '
       'ORDER BY id',
       variables: args,
     ).get();
@@ -132,8 +166,9 @@ class Searcher {
     for (final t in andTerms) {
       score += _count(text, t);
     }
-    // 注意：命中的 andTerm 也会在 orTerms 里再计一次（如 感冒 同时进两表），
-    // 这是有意的双重加权——命中多个信号的行本应靠前（Fix M3）。
+    // 注意：双重计数只发生在无空格/2-gram 场景——整段/2-gram orTerm 若恰好
+    // 包含 andTerm（如 感冒发热 含 感冒），该 andTerm 会在 orTerms 里再计一次，
+    // 这是有意的加权：命中多个信号的行本应靠前（Fix M3）。
     for (final t in orTerms) {
       if (text.contains(t) || heading.contains(t)) {
         score += wholeRuns.contains(t) ? _wholeRunBonus : 1;

@@ -15,6 +15,9 @@ void main() {
     test('识别药物', () {
       expect(IntentRouter.classify('生附子和炮附子的区别'), Intent.herbFormula);
     });
+    test('识别药材', () {
+      expect(IntentRouter.classify('柴胡'), Intent.herbFormula);
+    });
     test('无法识别回退 general', () {
       expect(IntentRouter.classify('你好呀'), Intent.general);
     });

@@ -73,8 +73,12 @@ class QueryTerms {
     for (final m in _cjkRun.allMatches(continuous)) {
       final run = m.group(0)!;
       if (run.length < 2) continue;
-      if (!or.contains(run)) or.add(run);
-      if (!whole.contains(run)) whole.add(run);
+      // Fix R2：过长的整段（>8 字）几乎不可能整段命中，且长句已由 2-gram 锚定，
+      // 不再把整段加入 or/whole（避免无效的 +3 权重与 SQL 长串匹配）。
+      if (run.length <= 8) {
+        if (!or.contains(run)) or.add(run);
+        if (!whole.contains(run)) whole.add(run);
+      }
       if (run.length <= 4) continue;
       for (var i = 0; i + 2 <= run.length; i++) {
         final gram = run.substring(i, i + 2);

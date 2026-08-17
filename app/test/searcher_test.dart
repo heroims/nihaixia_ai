@@ -75,6 +75,49 @@ void main() {
       expect(res.single.text, contains('恶寒'));
     });
 
+    test('minMatch clamp: 0 and negative behave as 1 (not full dump)', () async {
+      await insert('太阳之为病，脉浮，恶寒。');
+      await insert('恶寒发热者，发于阳也。');
+      await insert('口渴者，里热也。');
+
+      final res = await Searcher.searchRawChunks(db, ['恶寒'],
+          orTerms: ['口渴'], minMatch: 0);
+      final resNeg = await Searcher.searchRawChunks(db, ['恶寒'],
+          orTerms: ['口渴'], minMatch: -1);
+
+      // 只命中 orTerm（0 个 andTerm）的行不得因 minMatch<=0 被保留。
+      expect(res, hasLength(2));
+      expect(res.any((h) => h.text == '口渴者，里热也。'), isFalse);
+      expect(resNeg, hasLength(2));
+    });
+
+    test('heading-only andTerm match is kept', () async {
+      await insert('太阳之为病，脉浮，头项强痛而恶寒。');
+      await insert('太阳中风，脉浮，恶寒。', heading: '柴胡证');
+
+      final res = await Searcher.searchRawChunks(db, ['柴胡']);
+
+      expect(res, hasLength(1));
+      expect(res.single.heading, '柴胡证');
+    });
+
+    test('hitCount tier beats score tier', () async {
+      await insert('脉浮，恶寒，头项强痛。');
+      await insert('脉浮，脉浮，脉浮，脉浮，脉浮。');
+
+      final res = await Searcher.searchRawChunks(db, ['脉浮', '恶寒']);
+
+      expect(res, hasLength(2));
+      expect(res.first.text, contains('恶寒'));
+    });
+
+    test('limit <= 0 returns empty', () async {
+      await insert('太阳之为病，脉浮，恶寒。');
+
+      expect(await Searcher.searchRawChunks(db, ['脉浮'], limit: 0), isEmpty);
+      expect(await Searcher.searchRawChunks(db, ['脉浮'], limit: -1), isEmpty);
+    });
+
     test('no match returns empty', () async {
       await insert('太阳之为病，脉浮，头项强痛而恶寒。');
 
@@ -314,6 +357,15 @@ void main() {
       expect(
           terms.andTerms.where((t) => t == '无汗').length, 1);
       expect(terms.orTerms.toSet().length, terms.orTerms.length);
+    });
+
+    test('long CJK runs anchored by 2-grams, not whole-run', () {
+      final terms = QueryTerms.extract('一二三四五六七八九十');
+
+      expect(terms.andTerms, isEmpty);
+      expect(terms.orTerms, isNot(contains('一二三四五六七八九十')));
+      expect(terms.orTerms, contains('一二'));
+      expect(terms.wholeRuns, isNot(contains('一二三四五六七八九十')));
     });
 
     test('whitespace separated mixed query', () {
