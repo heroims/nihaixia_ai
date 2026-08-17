@@ -13,7 +13,8 @@ class PromptTemplates {
       ..writeln()
       ..writeln('【问题】$question')
       ..writeln()
-      ..writeln('要求：1) 只依据资料回答 2) 结尾注明出处 3) 资料不足时明确说"资料中未找到"。');
+      ..writeln(
+          '要求：1) 只依据资料回答 2) 结尾注明出处 3) 资料不足时明确说"资料中未找到" 4) 内容仅供学习参考，不构成医疗建议，身体不适请及时就医。');
     return buf.toString();
   }
 }

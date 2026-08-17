@@ -368,6 +368,14 @@ packages:
       url: "https://pub.flutter-io.cn"
     source: hosted
     version: "4.0.0"
+  llama_cpp_dart:
+    dependency: "direct main"
+    description:
+      name: llama_cpp_dart
+      sha256: b5682fa6993ab1fbab0657910b218a171a320ed54bb0185306f5ef974509c4fc
+      url: "https://pub.flutter-io.cn"
+    source: hosted
+    version: "0.0.7"
   logging:
     dependency: transitive
     description:

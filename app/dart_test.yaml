@@ -1,0 +1,6 @@
+# app/dart_test.yaml
+# real tag 需要手动下载约 1.1GB 的 GGUF 模型（见 assets/models/README.md），
+# 默认全量 flutter test 必须跳过，避免破坏 CI。
+tags:
+  real:
+    skip: "需要手动下载 GGUF 模型（约 1.1GB），见 assets/models/README.md"
