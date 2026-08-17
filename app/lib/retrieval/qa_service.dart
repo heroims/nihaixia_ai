@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:nihaixia_app/core/database.dart';
 import 'package:nihaixia_app/core/models.dart';
+import 'package:nihaixia_app/llm/rag_synthesizer.dart';
 import 'package:nihaixia_app/retrieval/answer_assembler.dart';
 import 'package:nihaixia_app/retrieval/intent_router.dart';
 import 'package:nihaixia_app/retrieval/query_terms.dart';
@@ -25,7 +26,11 @@ class QaResult {
 /// tiao_wen）作为 herbFormula 意图的补充优先路径。
 class QaService {
   final AppDatabase db;
-  QaService(this.db);
+
+  /// 可注入的 RAG 合成器（可选）。未注入或 LLM 不可用时自动降级为原文拼装。
+  final RagSynthesizer? synthesizer;
+
+  QaService(this.db, {this.synthesizer});
 
   Future<QaResult> answer(String query) async {
     final intent = IntentRouter.classify(query);
@@ -37,8 +42,20 @@ class QaService {
       }
       final hits = await Searcher.searchByQuery(db, query);
       if (hits.isNotEmpty) {
-        // body-only 答案：直接拼接命中文本，出处由 QaResult.sources 结构性承载，
-        // QaTab 用 SourceList 渲染，不再把（来源）内嵌进 answer 字符串（T18-4）。
+        // RAG 合成：仅用于子串检索路径（结构化路径 T21-3 保持原样）。命中证据
+        // 后若 synthesizer 可用，用其产出自然语言回答；空/失败输出走下方原文降级。
+        final synth = synthesizer;
+        if (synth != null && synth.enabled) {
+          final out = await synth.synthesize(
+            question: query,
+            evidences: hits.take(8).map((h) => '${h.source}·${h.heading}：${h.text}').toList(),
+          );
+          if (out != null && out.trim().isNotEmpty) {
+            return QaResult(hasAnswer: true, answer: out, sources: hits.take(5).toList());
+          }
+        }
+        // fallback：body-only 答案，直接拼接命中文本，出处由 QaResult.sources 结构
+        // 性承载，QaTab 用 SourceList 渲染，不再把（来源）内嵌进 answer 字符串（T18-4）。
         final text = hits.take(5).map((h) => h.text).join('\n\n');
         return QaResult(hasAnswer: true, answer: text, sources: hits.take(5).toList());
       }
