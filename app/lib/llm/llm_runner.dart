@@ -15,7 +15,7 @@ class LlmRunner {
   Isolate? _isolate;
   ReceivePort? _control;
   SendPort? _port;
-  final Completer<SendPort> _boot = Completer<SendPort>();
+  Completer<SendPort> _boot = Completer<SendPort>();
   Completer<void>? _loadDone;
   String? _loadError;
   final Map<int, _Pending> _pending = {};
@@ -35,7 +35,19 @@ class LlmRunner {
       _control = ReceivePort();
       _isolate = await Isolate.spawn(_isolateMain, _control!.sendPort);
       _control!.listen(_onMessage);
-      _port = await _boot.future.timeout(const Duration(seconds: 10));
+      try {
+        _port = await _boot.future.timeout(const Duration(seconds: 10));
+      } on TimeoutException {
+        // 启动超时：清空本次启动状态并换新 completer，令下次 ensureLoaded
+        // 走全新 isolate，避免挂在永不完成的 _boot 上。
+        _isolate?.kill(priority: Isolate.immediate);
+        _control?.close();
+        _isolate = null;
+        _control = null;
+        _port = null;
+        _boot = Completer<SendPort>();
+        rethrow;
+      }
     }
     final done = _loadDone = Completer<void>();
     _port!.send({
@@ -80,6 +92,9 @@ class LlmRunner {
     _disposed = true;
     _port?.send({'cmd': 'dispose'});
     _control?.close();
+    // 注意：Isolate.immediate 强杀可能抢在 host 处理 'dispose' 之前，导致
+    // llama_cpp_dart 的原生资源（LLM 上下文）未被回收。这是 Teardown 阶段的
+    // 已知 native 泄漏，App 退出即进程回收，可接受，故保持现状。
     _isolate?.kill(priority: Isolate.immediate);
     _port = null;
     _isolate = null;
@@ -140,6 +155,7 @@ void _isolateMain(SendPort mainPort) {
 class _IsolateHost {
   final ReceivePort port;
   final SendPort mainPort;
+  final LlmGate gate = LlmGate();
   Llama? llama;
   bool stopRequested = false;
   int activeId = -1;
@@ -178,6 +194,16 @@ class _IsolateHost {
           mainPort.send({'type': 'error', 'id': id, 'message': '模型未加载'});
           break;
         }
+        // 单飞闸门（Option A）：上一个生成尚未结束时，直接拒绝本次生成，
+        // 经 per-id 缓冲回到 generate() 变为 error，调用方降级为检索-only。
+        if (!gate.tryAcquire()) {
+          mainPort.send({
+            'type': 'error',
+            'id': id,
+            'message': 'busy: 已有生成任务进行中',
+          });
+          break;
+        }
         stopRequested = false;
         activeId = id;
         unawaited(_generate(l, id, msg['prompt'] as String));
@@ -209,8 +235,31 @@ class _IsolateHost {
     } catch (e) {
       mainPort.send({'type': 'error', 'id': id, 'message': e.toString()});
     } finally {
+      // 成功/超时/异常任一路径都必须释放闸门，否则后续生成被永久拒绝。
+      gate.release();
       stopRequested = false;
       activeId = -1;
     }
   }
+}
+
+/// 单飞闸门：同一时刻只允许一个生成任务在 Llama 上推进。
+///
+/// 纯 Dart 实现，不依赖 isolate 协议与原生库，可在单元测试中直接验证
+/// Option A（拒绝式串行化）语义；host 侧接入见 `_IsolateHost.onMessage`。
+/// 真机上的并发生成集成验证由 Task 26 覆盖（本机无原生库无法真实加载模型）。
+class LlmGate {
+  bool _busy = false;
+
+  bool get busy => _busy;
+
+  /// 尝试占用闸门。若已有生成任务在进行中则返回 false（调用方应拒绝新任务）。
+  bool tryAcquire() {
+    if (_busy) return false;
+    _busy = true;
+    return true;
+  }
+
+  /// 释放闸门，幂等。
+  void release() => _busy = false;
 }
