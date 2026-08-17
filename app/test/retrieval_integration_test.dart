@@ -60,4 +60,36 @@ void main() {
     expect(r.answer, '资料中未找到相关内容。');
     await db.close();
   });
+
+  test('数据库异常返回检索失败而非崩溃', () async {
+    final db = AppDatabase(NativeDatabase.memory());
+    // 先写一条触发连接打开，否则「从未打开就 close」的 in-memory 连接查询会
+    // 静默返回空而非抛错，无法走到 QaService 的异常兜底分支。
+    await db.into(db.herbs).insert(HerbsCompanion.insert(name: '甘草'));
+    final svc = QaService(db);
+    await db.close();
+
+    final r = await svc.answer('甘草有什么作用');
+
+    expect(r.hasAnswer, false);
+    expect(r.answer, '检索出现异常，请重试。');
+  });
+
+  test('柴胡别名查询返回结构化解药与来源', () async {
+    final db = AppDatabase(NativeDatabase.memory());
+    await db.into(db.herbs).insert(HerbsCompanion.insert(
+          name: '茈胡',
+          taste: const Value('苦平'),
+          indications: const Value('主心腹去肠胃中结气'),
+        ));
+
+    final svc = QaService(db);
+    final r = await svc.answer('柴胡');
+
+    expect(r.hasAnswer, true);
+    expect(r.sources, isNotEmpty);
+    expect(r.answer, contains('茈胡（柴胡）'));
+    expect(r.sources.first.source, '神农本草经');
+    await db.close();
+  });
 }

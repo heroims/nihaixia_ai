@@ -11,8 +11,9 @@ class StructuredQueries {
   /// 现代药名 → 神农本草经古名（仅 herbs.name 存古名）。
   ///
   /// 仅用于 [findHerbs] 的别名扩充，不影响 canonicalize/检索测试。
-  /// 全部目标名已在 tools/out/kb.sqlite3 的 herbs 表确认存在。
-  static const Map<String, String> _herbAliases = {
+  /// QaService 反查该表做展示用现代名提示。全部目标名已在
+  /// tools/out/kb.sqlite3 的 herbs 表确认存在。
+  static const Map<String, String> herbAliases = {
     '桂枝': '牡桂',
     '肉桂': '牡桂',
     '黄芪': '黄耆',
@@ -111,7 +112,7 @@ class StructuredQueries {
     String name, {
     int limit = 10,
   }) async {
-    final alias = _herbAliases[name];
+    final alias = herbAliases[name];
     final patterns = <String>['%$name%'];
     if (alias != null && alias != name) patterns.add('%$alias%');
     return (db.select(db.herbs)

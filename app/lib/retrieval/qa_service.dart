@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:nihaixia_app/core/database.dart';
 import 'package:nihaixia_app/core/models.dart';
 import 'package:nihaixia_app/retrieval/answer_assembler.dart';
@@ -36,14 +37,14 @@ class QaService {
       }
       final hits = await Searcher.searchByQuery(db, query);
       if (hits.isNotEmpty) {
-        final text = AnswerAssembler.formatSnippet(
-          sources: hits.map((h) => '${h.source}·${h.heading}').toList(),
-          answer: hits.take(3).map((h) => h.text).join('\n\n'),
-        );
-        return QaResult(hasAnswer: true, answer: text, sources: hits.take(3).toList());
+        // body-only 答案：直接拼接命中文本，出处由 QaResult.sources 结构性承载，
+        // QaTab 用 SourceList 渲染，不再把（来源）内嵌进 answer 字符串（T18-4）。
+        final text = hits.take(5).map((h) => h.text).join('\n\n');
+        return QaResult(hasAnswer: true, answer: text, sources: hits.take(5).toList());
       }
-      return const QaResult(hasAnswer: false, answer: '资料中未找到相关内容。');
-    } catch (_) {
+      return QaResult(hasAnswer: false, answer: AnswerAssembler.formatEmpty());
+    } catch (e) {
+      debugPrint('[QaService] answer failed: $e');
       return const QaResult(hasAnswer: false, answer: '检索出现异常，请重试。');
     }
   }
@@ -52,6 +53,11 @@ class QaService {
   /// [QueryTerms.extract] 提取出的药材/方剂关键词（'甘草有什么作用' 整句
   /// 无法命中 herbs.name，需退到关键词 '甘草'）。三表全空返回 null 交由
   /// 主路径走 [Searcher.searchByQuery] 子串兜底。
+  ///
+  /// 已知局限（T18-5，设计暂缓，不修）：'小柴胡汤什么时候用' 经
+  /// [QueryTerms.extract] 得 andTerms=柴胡，findHerbs 命中 茈胡 +
+  /// findTiaoWen 命中 99 行且无排序（噪声），未做排序/噪声抑制，交由
+  /// Task 21（RAG 证据）与 Task 22（云端 LLM 排序）处理。
   Future<QaResult?> _answerStructured(String query) async {
     final herbs = <Herb>[];
     final formulas = <Formula>[];
@@ -68,7 +74,7 @@ class QaService {
     final buf = StringBuffer();
     for (final h in herbs) {
       final desc = '${h.taste ?? ''} ${h.indications ?? ''}'.trim();
-      buf.writeln(desc.isEmpty ? h.name : '${h.name}：$desc');
+      buf.writeln(desc.isEmpty ? _herbDisplayName(h.name) : '${_herbDisplayName(h.name)}：$desc');
     }
     for (final f in formulas) {
       final name = f.name ?? f.title ?? '';
@@ -83,7 +89,7 @@ class QaService {
       for (final h in herbs)
         SearchHit(
           source: '神农本草经',
-          heading: h.name,
+          heading: _herbDisplayName(h.name),
           text: '${h.taste ?? ''} ${h.indications ?? ''}'.trim(),
         ),
       for (final f in formulas)
@@ -96,10 +102,26 @@ class QaService {
         SearchHit(source: t.source, heading: t.title ?? '', text: t.body),
     ];
 
-    final text = AnswerAssembler.formatSnippet(
-      sources: sources.map((s) => '${s.source}·${s.heading}').toList(),
-      answer: buf.toString().trim(),
-    );
+    final text = buf.toString().trim();
     return QaResult(hasAnswer: true, answer: text, sources: sources);
+  }
+
+  /// 古名 → 现代名（显示用）：herbs.name 存神农本草经古名（茈胡），用户多输
+  /// 现代名（柴胡）检索，展示时补现代名提示，避免『茈胡』对用户晦涩。
+  /// 由 [StructuredQueries.herbAliases] 反推，避免双份别名表漂移。
+  static final Map<String, String> _modernNames = _buildModernNames();
+
+  static Map<String, String> _buildModernNames() {
+    final m = <String, String>{};
+    for (final e in StructuredQueries.herbAliases.entries) {
+      // putIfAbsent 保留首个现代名：牡桂 → 桂枝（而非后面的 肉桂）。
+      m.putIfAbsent(e.value, () => e.key);
+    }
+    return m;
+  }
+
+  static String _herbDisplayName(String name) {
+    final modern = _modernNames[name];
+    return modern == null ? name : '$name（$modern）';
   }
 }
