@@ -42,14 +42,22 @@ class QaService {
       }
       final hits = await Searcher.searchByQuery(db, query);
       if (hits.isNotEmpty) {
-        // RAG 合成：仅用于子串检索路径（结构化路径 T21-3 保持原样）。命中证据
-        // 后若 synthesizer 可用，用其产出自然语言回答；空/失败输出走下方原文降级。
+        // RAG 合成：仅用于子串检索路径（结构化路径走 RAG 属 Task 23/26 产品
+        // 决策，暂缓）。命中证据后若 synthesizer 可用，用其产出自然语言回答；
+        // 空/空白/异常输出一律走下方原文降级——降级链必须完整：合成器异常
+        // 不得跳到外层 catch 变成『检索出现异常』（那是检索层错误才用的文案）。
         final synth = synthesizer;
         if (synth != null && synth.enabled) {
-          final out = await synth.synthesize(
-            question: query,
-            evidences: hits.take(8).map((h) => '${h.source}·${h.heading}：${h.text}').toList(),
-          );
+          String? out;
+          try {
+            out = await synth.synthesize(
+              question: query,
+              evidences: hits.take(8).map((h) => '${h.source}·${h.heading}：${h.text}').toList(),
+            );
+          } catch (e) {
+            // 合成器异常 → 与空输出同等处理，降级为原文拼装。
+            debugPrint('[QaService] synthesizer failed, degrade to body: $e');
+          }
           if (out != null && out.trim().isNotEmpty) {
             return QaResult(hasAnswer: true, answer: out, sources: hits.take(5).toList());
           }
@@ -57,6 +65,10 @@ class QaService {
         // fallback：body-only 答案，直接拼接命中文本，出处由 QaResult.sources 结构
         // 性承载，QaTab 用 SourceList 渲染，不再把（来源）内嵌进 answer 字符串（T18-4）。
         final text = hits.take(5).map((h) => h.text).join('\n\n');
+        if (text.trim().isEmpty) {
+          // 仅标题命中（正文为空）的 chunk：无实质答案，按 formatEmpty 语义返回。
+          return QaResult(hasAnswer: false, answer: AnswerAssembler.formatEmpty());
+        }
         return QaResult(hasAnswer: true, answer: text, sources: hits.take(5).toList());
       }
       return QaResult(hasAnswer: false, answer: AnswerAssembler.formatEmpty());
