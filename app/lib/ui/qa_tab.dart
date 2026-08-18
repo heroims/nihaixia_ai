@@ -3,6 +3,7 @@ import 'package:nihaixia_app/core/models.dart';
 import 'package:nihaixia_app/retrieval/qa_service.dart';
 import 'widgets/disclaimer_banner.dart';
 import 'widgets/source_list.dart';
+import 'widgets/warning_card.dart';
 
 class QaTab extends StatefulWidget {
   final QaService? service;
@@ -15,6 +16,7 @@ class _QaTabState extends State<QaTab> {
   final _controller = TextEditingController();
   final _scrollController = ScrollController();
   String _answer = '';
+  bool _hasAnswer = false;
   List<SearchHit> _sources = const [];
   bool _loading = false;
   // 请求令牌：并发防抖。每次提交自增，早先 in-flight 请求完成后若令牌已过期
@@ -37,6 +39,7 @@ class _QaTabState extends State<QaTab> {
     if (service == null) {
       setState(() {
         _answer = '（检索层未接线，将在 M5 完成。输入：$q）';
+        _hasAnswer = false;
         _sources = const [];
       });
       return;
@@ -48,6 +51,7 @@ class _QaTabState extends State<QaTab> {
     setState(() {
       _loading = false;
       _answer = r.answer;
+      _hasAnswer = r.hasAnswer;
       _sources = r.sources;
     });
     if (_scrollController.hasClients) {
@@ -103,6 +107,7 @@ class _QaTabState extends State<QaTab> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
+        WarningCard(text: _hasAnswer ? _answer : null),
         Text(_answer),
         const SizedBox(height: 8),
         SourceList(sources: _sources),

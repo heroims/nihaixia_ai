@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:nihaixia_app/app.dart';
 import 'package:nihaixia_app/core/models.dart';
 import 'package:nihaixia_app/ui/widgets/source_list.dart';
+import 'package:nihaixia_app/ui/widgets/warning_card.dart';
 
 void main() {
   testWidgets('app shows two tabs and disclaimer', (tester) async {
@@ -31,5 +32,17 @@ void main() {
       home: Scaffold(body: SourceList(sources: [])),
     ));
     expect(find.text('（来源）'), findsNothing);
+  });
+
+  testWidgets('settings tab accessible', (tester) async {
+    await tester.pumpWidget(const NihaixiaApp());
+    expect(find.byIcon(Icons.settings), findsOneWidget);
+  });
+
+  testWidgets('emergency warning card renders', (tester) async {
+    await tester.pumpWidget(const MaterialApp(
+      home: Scaffold(body: WarningCard(text: '出现胸痛，请立即就医')),
+    ));
+    expect(find.textContaining('立即就医'), findsOneWidget);
   });
 }

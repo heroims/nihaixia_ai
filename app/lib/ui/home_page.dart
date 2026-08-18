@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'qa_tab.dart';
 import 'diagnosis_tab.dart';
+import 'settings_tab.dart';
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
@@ -15,13 +16,14 @@ class _HomePageState extends State<HomePage> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: const Text('倪海厦中医问答')),
-      body: IndexedStack(index: _index, children: const [QaTab(), DiagnosisTab()]),
+      body: IndexedStack(index: _index, children: const [QaTab(), DiagnosisTab(), SettingsTab()]),
       bottomNavigationBar: NavigationBar(
         selectedIndex: _index,
         onDestinationSelected: (i) => setState(() => _index = i),
         destinations: const [
           NavigationDestination(icon: Icon(Icons.chat), label: '自由问答'),
           NavigationDestination(icon: Icon(Icons.healing), label: '引导式诊断'),
+          NavigationDestination(icon: Icon(Icons.settings), label: '设置'),
         ],
       ),
     );
