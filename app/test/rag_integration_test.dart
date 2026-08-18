@@ -6,19 +6,21 @@ import 'package:nihaixia_app/llm/llm_service.dart';
 import 'package:nihaixia_app/llm/rag_synthesizer.dart';
 import 'package:nihaixia_app/retrieval/qa_service.dart';
 
-/// 可控 fake：isAvailable 恒真，generate 行为可配（预设输出 / 返回 null / 抛异常），
-/// 并记录调用次数与最后一次 prompt 供断言。
+/// 可控 fake：isAvailable 默认恒真（可配 false 模拟不可用），generate 行为可配
+/// （预设输出 / 返回 null / 抛异常），并记录调用次数与最后一次 prompt 供断言。
 class _FakeLlmService extends LlmService {
   final String? output;
   final bool throwOnGenerate;
+  final bool available;
   int callCount = 0;
   String? lastPrompt;
 
-  _FakeLlmService(this.output, {this.throwOnGenerate = false})
+  _FakeLlmService(this.output,
+      {this.throwOnGenerate = false, this.available = true})
       : super(modelPath: '/nonexistent.gguf');
 
   @override
-  bool get isAvailable => true;
+  bool get isAvailable => available;
 
   @override
   Future<String?> generate(String prompt) async {
@@ -135,7 +137,7 @@ void main() {
     await db.close();
   });
 
-  test('结构化路径命中时不调用合成器', () async {
+  test('结构化路径命中且合成器可用时返回合成答案', () async {
     final db = AppDatabase(NativeDatabase.memory());
     await db.into(db.herbs).insert(HerbsCompanion.insert(
           name: '麻黄',
@@ -143,12 +145,53 @@ void main() {
           indications: const Value('发汗解表，宣肺平喘'),
         ));
 
-    final llm = _FakeLlmService('合成器不应被调用');
+    final llm = _FakeLlmService('这是结构化RAG合成回答');
+    final svc = QaService(db, synthesizer: RagSynthesizer(llm));
+    final r = await svc.answer('麻黄性味');
+
+    expect(r.hasAnswer, true);
+    expect(r.answer, '这是结构化RAG合成回答');
+    expect(llm.callCount, 1);
+    expect(r.sources, isNotEmpty);
+    expect(r.sources.first.source, '神农本草经');
+    await db.close();
+  });
+
+  test('结构化路径命中但合成器不可用时降级为原文 dump', () async {
+    final db = AppDatabase(NativeDatabase.memory());
+    await db.into(db.herbs).insert(HerbsCompanion.insert(
+          name: '麻黄',
+          taste: const Value('辛微苦温'),
+          indications: const Value('发汗解表，宣肺平喘'),
+        ));
+
+    // available:false 镜像真实 LlmService('/nonexistent.gguf') 的不可用语义
+    // （isAvailable=false → RagSynthesizer.enabled=false，合成器不被调用）。
+    final llm = _FakeLlmService('x', available: false);
     final svc = QaService(db, synthesizer: RagSynthesizer(llm));
     final r = await svc.answer('麻黄性味');
 
     expect(r.hasAnswer, true);
     expect(llm.callCount, 0);
+    expect(r.answer, contains('麻黄'));
+    await db.close();
+  });
+
+  test('结构化路径命中但合成器输出为空时降级为原文 dump', () async {
+    final db = AppDatabase(NativeDatabase.memory());
+    await db.into(db.herbs).insert(HerbsCompanion.insert(
+          name: '麻黄',
+          taste: const Value('辛微苦温'),
+          indications: const Value('发汗解表，宣肺平喘'),
+        ));
+
+    final llm = _FakeLlmService('');
+    final svc = QaService(db, synthesizer: RagSynthesizer(llm));
+    final r = await svc.answer('麻黄性味');
+
+    expect(r.hasAnswer, true);
+    expect(llm.callCount, 1);
+    expect(r.answer, contains('麻黄'));
     await db.close();
   });
 

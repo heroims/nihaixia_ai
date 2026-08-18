@@ -42,26 +42,12 @@ class QaService {
       }
       final hits = await Searcher.searchByQuery(db, query);
       if (hits.isNotEmpty) {
-        // RAG 合成：仅用于子串检索路径（结构化路径走 RAG 属 Task 23/26 产品
-        // 决策，暂缓）。命中证据后若 synthesizer 可用，用其产出自然语言回答；
-        // 空/空白/异常输出一律走下方原文降级——降级链必须完整：合成器异常
-        // 不得跳到外层 catch 变成『检索出现异常』（那是检索层错误才用的文案）。
-        final synth = synthesizer;
-        if (synth != null && synth.enabled) {
-          String? out;
-          try {
-            out = await synth.synthesize(
-              question: query,
-              evidences: hits.take(8).map((h) => '${h.source}·${h.heading}：${h.text}').toList(),
-            );
-          } catch (e) {
-            // 合成器异常 → 与空输出同等处理，降级为原文拼装。
-            debugPrint('[QaService] synthesizer failed, degrade to body: $e');
-          }
-          if (out != null && out.trim().isNotEmpty) {
-            return QaResult(hasAnswer: true, answer: out, sources: hits.take(5).toList());
-          }
-        }
+        // RAG 合成：子串与结构化路径共用 [_synthesize]。命中证据后若合成器
+        // 可用且产出非空，用其产出自然语言回答；空/空白/异常输出一律走下方
+        // 原文降级——降级链必须完整：合成器异常不得跳到外层 catch 变成
+        // 『检索出现异常』（那是检索层错误才用的文案）。
+        final synthesized = await _synthesize(query, hits);
+        if (synthesized != null) return synthesized;
         // fallback：body-only 答案，直接拼接命中文本，出处由 QaResult.sources 结构
         // 性承载，QaTab 用 SourceList 渲染，不再把（来源）内嵌进 answer 字符串（T18-4）。
         final text = hits.take(5).map((h) => h.text).join('\n\n');
@@ -78,15 +64,39 @@ class QaService {
     }
   }
 
+  /// RAG 合成尝试：synthesizer 可用且产出非空 → 返回合成答案；否则返回 null
+  /// 由调用方走各自的原文降级。合成器异常与空输出同等处理（降级链完整）。
+  Future<QaResult?> _synthesize(String query, List<SearchHit> sources) async {
+    final synth = synthesizer;
+    if (synth == null || !synth.enabled) return null;
+    String? out;
+    try {
+      out = await synth.synthesize(
+        question: query,
+        evidences: sources
+            .take(8)
+            .map((h) => '${h.source}·${h.heading}：${h.text}')
+            .toList(),
+      );
+    } catch (e) {
+      debugPrint('[QaService] synthesizer failed, degrade to body: $e');
+    }
+    if (out == null || out.trim().isEmpty) return null;
+    return QaResult(hasAnswer: true, answer: out, sources: sources.take(5).toList());
+  }
+
   /// 结构化优先路径：先用整句 query 匹配各表，匹配不到再退到
   /// [QueryTerms.extract] 提取出的药材/方剂关键词（'甘草有什么作用' 整句
   /// 无法命中 herbs.name，需退到关键词 '甘草'）。三表全空返回 null 交由
   /// 主路径走 [Searcher.searchByQuery] 子串兜底。
   ///
-  /// 已知局限（T18-5，设计暂缓，不修）：'小柴胡汤什么时候用' 经
-  /// [QueryTerms.extract] 得 andTerms=柴胡，findHerbs 命中 茈胡 +
-  /// findTiaoWen 命中 99 行且无排序（噪声），未做排序/噪声抑制，交由
-  /// Task 21（RAG 证据）与 Task 22（云端 LLM 排序）处理。
+  /// 命中后先走 [_synthesize] RAG 合成（tiao_wen 噪声在合成器可用时由 LLM
+  /// 归纳缓解）；合成器不可用或产出为空则降级为原文 dump。
+  ///
+  /// 已知局限（T18-5）：'小柴胡汤什么时候用' 经 [QueryTerms.extract] 得
+  /// andTerms=柴胡，findHerbs 命中 茈胡 + findTiaoWen 命中 99 行且无排序
+  /// （噪声）。synthesizer 可用时由 LLM 归纳缓解（[_synthesize] 取前 8 条
+  /// 证据）；不可用时仍为原文 dump（已知限制，Task 22 云端 LLM 排序未接入）。
   Future<QaResult?> _answerStructured(String query) async {
     final herbs = <Herb>[];
     final formulas = <Formula>[];
@@ -130,6 +140,10 @@ class QaService {
       for (final t in tiaoWen)
         SearchHit(source: t.source, heading: t.title ?? '', text: t.body),
     ];
+
+    // 结构化命中后先尝试 RAG 合成；失败/不可用再走原文 dump 降级。
+    final synthesized = await _synthesize(query, sources);
+    if (synthesized != null) return synthesized;
 
     final text = buf.toString().trim();
     return QaResult(hasAnswer: true, answer: text, sources: sources);
