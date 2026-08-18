@@ -1,6 +1,8 @@
+import 'package:drift/native.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:nihaixia_app/app.dart';
+import 'package:nihaixia_app/core/database.dart';
 import 'package:nihaixia_app/core/models.dart';
 import 'package:nihaixia_app/ui/widgets/source_list.dart';
 import 'package:nihaixia_app/ui/widgets/warning_card.dart';
@@ -11,6 +13,12 @@ void main() {
     expect(find.text('自由问答'), findsOneWidget);
     expect(find.text('引导式诊断'), findsOneWidget);
     expect(find.text('设置'), findsOneWidget);
+    expect(find.textContaining('仅供学习参考'), findsWidgets);
+  });
+
+  testWidgets('app pumps with in-memory db', (tester) async {
+    await tester.pumpWidget(NihaixiaApp(database: AppDatabase(NativeDatabase.memory())));
+    expect(find.text('自由问答'), findsOneWidget);
     expect(find.textContaining('仅供学习参考'), findsWidgets);
   });
 
