@@ -31,19 +31,26 @@ class _DiagnosisTabState extends State<DiagnosisTab> {
           const SizedBox(height: 12),
           ..._options(),
           const SizedBox(height: 16),
-          if (_result != null)
+          if (_result != null) ...[
             Card(elevation: 2, child: Padding(
               padding: const EdgeInsets.all(12),
               child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                Text('辨证：${_result!.jing}', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
+                Text(_resultTitle(_result!.status, _result!.jing),
+                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
                 const SizedBox(height: 4),
                 Text(_result!.message),
                 if (_result!.suggestedFormula.isNotEmpty)
                   Padding(padding: const EdgeInsets.only(top: 4), child: Text('代表方方向：${_result!.suggestedFormula}')),
               ]),
             )),
-          if (_result != null) const SizedBox(height: 8),
-          if (_result != null) WarningCard(text: _result!.message),
+            const SizedBox(height: 8),
+            WarningCard(text: _result!.message),
+            const SizedBox(height: 8),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: FilledButton.tonal(onPressed: _restart, child: const Text('重新开始')),
+            ),
+          ],
         ]),
       ),
     ]);
@@ -94,15 +101,27 @@ class _DiagnosisTabState extends State<DiagnosisTab> {
     _next();
   }
 
-  void _next() => setState(() {
-        if (_q < _questions.length - 1) {
-          _q++;
-        } else {
-          _finish();
-        }
-      });
+  void _next() {
+    if (_q < _questions.length - 1) {
+      setState(() => _q++);
+    } else {
+      _finish();
+    }
+  }
 
   void _finish() => setState(() {
         _result = DiagnosticEngine.evaluate(_input);
       });
+
+  void _restart() => setState(() {
+        _input = const SymptomInput();
+        _result = null;
+        _q = 0;
+      });
+
+  String _resultTitle(DiagnosisStatus status, String jing) => switch (status) {
+        DiagnosisStatus.matched => '辨证：$jing',
+        DiagnosisStatus.insufficient => '信息不足，无法辨证',
+        DiagnosisStatus.unmatched => '辨证未确定',
+      };
 }
