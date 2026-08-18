@@ -6,10 +6,11 @@ import 'package:nihaixia_app/ui/widgets/source_list.dart';
 import 'package:nihaixia_app/ui/widgets/warning_card.dart';
 
 void main() {
-  testWidgets('app shows two tabs and disclaimer', (tester) async {
+  testWidgets('app shows three tabs and disclaimer', (tester) async {
     await tester.pumpWidget(const NihaixiaApp());
     expect(find.text('自由问答'), findsOneWidget);
     expect(find.text('引导式诊断'), findsOneWidget);
+    expect(find.text('设置'), findsOneWidget);
     expect(find.textContaining('仅供学习参考'), findsWidgets);
   });
 

@@ -3,6 +3,20 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import '../cloud/cloud_config.dart';
 
+String? validateCloudUrl(String? url) {
+  final trimmed = (url ?? '').trim();
+  if (trimmed.isEmpty) return null;
+  final uri = Uri.tryParse(trimmed);
+  if (uri == null ||
+      !(uri.isScheme('http') || uri.isScheme('https')) ||
+      !uri.hasAuthority ||
+      uri.host.isEmpty ||
+      RegExp(r'\s').hasMatch(trimmed)) {
+    return 'Base URL 必须以 http:// 或 https:// 开头';
+  }
+  return null;
+}
+
 class SettingsTab extends StatefulWidget {
   const SettingsTab({super.key});
   @override
@@ -14,14 +28,24 @@ class _SettingsTabState extends State<SettingsTab> {
   final _key = TextEditingController();
   CloudConfig _cfg = const CloudConfig();
 
-  static String? validateUrl(String? url) {
-    final trimmed = (url ?? '').trim();
-    if (trimmed.isEmpty) return null;
-    final uri = Uri.tryParse(trimmed);
-    if (uri == null || !uri.hasScheme || !(uri.isScheme('http') || uri.isScheme('https'))) {
-      return 'Base URL 必须以 http:// 或 https:// 开头';
+  @override
+  void initState() {
+    super.initState();
+    unawaited(_loadSaved());
+  }
+
+  Future<void> _loadSaved() async {
+    try {
+      final cfg = await CloudConfigStore.load();
+      if (!mounted) return;
+      setState(() {
+        _cfg = cfg;
+        _url.text = cfg.baseUrl;
+        _key.text = cfg.apiKey;
+      });
+    } catch (e) {
+      debugPrint('cloud config load failed: $e');
     }
-    return null;
   }
 
   @override
@@ -33,7 +57,7 @@ class _SettingsTabState extends State<SettingsTab> {
       const SizedBox(height: 16),
       TextField(controller: _url, decoration: const InputDecoration(labelText: 'Base URL', hintText: 'https://api.example.com/v1')),
       const SizedBox(height: 8),
-      TextField(controller: _key, decoration: const InputDecoration(labelText: 'API Key')),
+      TextField(controller: _key, obscureText: true, decoration: const InputDecoration(labelText: 'API Key')),
       const SizedBox(height: 8),
       FilledButton(onPressed: _save, child: const Text('保存')),
       if (_cfg.isEnabled)
@@ -50,7 +74,7 @@ class _SettingsTabState extends State<SettingsTab> {
   }
 
   void _save() {
-    final error = validateUrl(_url.text);
+    final error = validateCloudUrl(_url.text);
     if (error != null) {
       ScaffoldMessenger.of(context)
           .showSnackBar(SnackBar(content: Text(error)));
@@ -59,5 +83,6 @@ class _SettingsTabState extends State<SettingsTab> {
     final next = CloudConfig(baseUrl: _url.text.trim(), apiKey: _key.text.trim());
     setState(() => _cfg = next);
     unawaited(CloudConfigStore.save(next));
+    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('已保存')));
   }
 }
