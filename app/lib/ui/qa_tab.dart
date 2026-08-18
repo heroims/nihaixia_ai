@@ -1,6 +1,11 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:nihaixia_app/core/database.dart';
 import 'package:nihaixia_app/core/models.dart';
+import 'package:nihaixia_app/llm/llm_service.dart';
+import 'package:nihaixia_app/llm/model_resolver.dart';
+import 'package:nihaixia_app/llm/rag_synthesizer.dart';
 import 'package:nihaixia_app/retrieval/qa_service.dart';
 import 'widgets/disclaimer_banner.dart';
 import 'widgets/source_list.dart';
@@ -17,6 +22,7 @@ class _QaTabState extends State<QaTab> {
   final _controller = TextEditingController();
   final _scrollController = ScrollController();
   QaService? _service;
+  LlmService? _llm;
   String _answer = '';
   bool _hasAnswer = false;
   List<SearchHit> _sources = const [];
@@ -30,13 +36,35 @@ class _QaTabState extends State<QaTab> {
     super.initState();
     final db = widget.db;
     if (db != null) _service = QaService(db);
+    _initLlm();
   }
 
   @override
   void dispose() {
     _controller.dispose();
     _scrollController.dispose();
+    unawaited(_llm?.dispose());
     super.dispose();
+  }
+
+  /// 异步接线端侧 LLM：模型可解析且可用 → 以带 RAG 合成器的 QaService 替换
+  /// 纯检索服务；任一环节失败（无模型/不可用/异常）→ 保持纯检索，永不崩溃。
+  Future<void> _initLlm() async {
+    final db = widget.db;
+    if (db == null) return;
+    try {
+      final path = await LlmModelResolver.resolve();
+      if (path == null) return; // 无模型 → 纯检索
+      final llm = LlmService(modelPath: path);
+      if (!llm.isAvailable) return;
+      if (!mounted) return;
+      setState(() {
+        _llm = llm;
+        _service = QaService(db, synthesizer: RagSynthesizer(llm));
+      });
+    } catch (e) {
+      debugPrint('[QaTab] LLM init failed, degrade to pure retrieval: $e');
+    }
   }
 
   Future<void> _ask() async {

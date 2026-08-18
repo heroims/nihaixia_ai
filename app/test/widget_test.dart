@@ -22,6 +22,16 @@ void main() {
     expect(find.textContaining('仅供学习参考'), findsWidgets);
   });
 
+  testWidgets('memory db init degrades gracefully when llm resolve fails', (tester) async {
+    // 带 db 会触发 _initLlm → resolve() → path_provider 在测试环境抛
+    // MissingPluginException，应被 _initLlm 捕获并降级纯检索，不得有未处理异常。
+    await tester.pumpWidget(NihaixiaApp(database: AppDatabase(NativeDatabase.memory())));
+    // 让 _initLlm 的异常路径在测试体内完成，避免结束后的异步残留。
+    await tester.pump();
+    expect(find.text('自由问答'), findsOneWidget);
+    await tester.pump();
+  });
+
   testWidgets('SourceList renders source·heading per hit', (tester) async {
     await tester.pumpWidget(const MaterialApp(
       home: Scaffold(
