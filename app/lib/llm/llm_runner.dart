@@ -221,7 +221,8 @@ class _IsolateHost {
 
   Future<void> _generate(Llama llama, int id, String prompt) async {
     try {
-      llama.setPrompt(prompt);
+      llama.setPrompt(
+          '<|im_start|>user\n$prompt<|im_end|>\n<|im_start|>assistant\n');
       while (!stopRequested) {
         final (token, done) = llama.getNext();
         if (token.isNotEmpty) {
