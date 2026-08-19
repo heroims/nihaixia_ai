@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter_markdown/flutter_markdown.dart';
 import 'package:nihaixia_app/core/database.dart';
 import 'package:nihaixia_app/core/models.dart';
 import 'package:nihaixia_app/llm/llm_service.dart';
@@ -145,7 +146,11 @@ class _QaTabState extends State<QaTab> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         WarningCard(text: _hasAnswer ? _answer : null),
-        Text(_answer),
+        MarkdownBody(
+          data: _answer,
+          selectable: true,
+          styleSheet: MarkdownStyleSheet.fromTheme(Theme.of(context)),
+        ),
         const SizedBox(height: 8),
         SourceList(sources: _sources),
       ],
