@@ -15,7 +15,8 @@ dependencies:
   path: ^1.9.0
   shared_preferences: ^2.2.3
   http: ^1.2.0
-  llama_cpp_dart: 0.0.7
+  llama_cpp_dart:
+    path: third_party/llama_cpp_dart
 
 dev_dependencies:
   flutter_test:

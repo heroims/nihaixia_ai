@@ -68,9 +68,11 @@ flutter test --run-skipped test/llm_real_test.dart
 
 - **tiao_wen 结构化命中未排序（噪声）**：`小柴胡汤什么时候用` 等 herbFormula 意图查询命中 tiao_wen 表且无排序（噪声）。合成器可用时由 LLM 归纳缓解（取前 8 条证据），不可用时为原文 dump。
 - **llm_runner load 重试守卫缺失**：`LlmRunner.ensureLoaded` 的 load 等待（120s 超时）没有像 `_boot` 超时那样的 kill/reset 守卫——load 超时抛错后 isolate 可能残留。当前不可达（`LlmService.generate` 一次性 dispose + `_failed` 降级覆盖）；补上镜像 `_boot` 超时的 reset 守卫是剩余的真机收尾项（仅真机可复现）。
-- **Android native libllama vendoring**：`llama_cpp_dart 0.0.7` 的 Android CMake（`src/CMakeLists.txt`）通过 `add_subdirectory(./llama.cpp)` 引用 llama.cpp 源码，但该版本包内不含 `src/llama.cpp` 源码，因此 Android 原生 `libllama.so` 无法自动编译，release 包打不出来：
-  - 需 vendoring llama.cpp 源码到插件 `src/llama.cpp`，或自建并预置 `libllama.so`（arm64-v8a / x86_64）；
-  - release 构建前还需配置签名（`key.properties` / gradle `signingConfig`）。
+- **Android native libllama vendoring（已解决）**：`llama_cpp_dart 0.0.7` 已 vendoring 到 `app/third_party/llama_cpp_dart/`，内含 llama.cpp **b5113** 源码与 C++ ABI shim（`src/llama_abi_shim.cpp`，不 include llama.h + rename 宏），产出 ABI 兼容的 `libllama.{dylib,so}`：
+  - 原生库经 CMake 手工构建后预置为 `app/third_party/llama_cpp_dart/android/src/main/jniLibs/{arm64-v8a,x86_64}/libllama.so`（无 OpenMP、仅依赖系统库，SONAME 正确），插件已移除 `externalNativeBuild`，`flutter build apk --release` 直接打包；
+  - macOS 调试用 `LLAMA_LIBRARY_PATH=.../libllama.dylib flutter test --run-skipped test/llm_real_test.dart`；
+  - 构建需 NDK + CMake；本机并行 ninja 会 OOM，用 `ninja -j2`。
+  - 注意：`app/android/gradle.properties` 已固定 `org.gradle.java.home` 为 JDK 17（Gradle/AGP 8.7 不支持 JDK 25），`gradle-wrapper.properties` 已升级 gradle 8.9 / AGP 8.7.3（aapt2 才能解析 android-35 资源）。
 - **模型打包方式**：模型当前经文件系统路径加载（非 Flutter asset），`pubspec.yaml` 未注册 `assets/models/`；打包为 App 内资产需要额外工作（注册为资产或部署到应用文档目录）。
 
 ## 免责声明
