@@ -9,7 +9,7 @@
 
 ## 分层能力
 - **纯检索**：任意机型可用。基于内置 SQLite 的「and-only OR LIKE 子串匹配 + Dart 侧部分命中过滤与评分」检索（不走 FTS5，无 jieba 分词），答案可溯源到原文。
-- **端侧 LLM RAG（已启用）**：`app/lib/llm/` 的 `LlmService` / `LlmRunner` / `RagSynthesizer` 已实现并通过单元测试，并已接入问答流程——`QaTab` 启动时经 `LlmModelResolver` 自动检测模型文件（优先应用文档目录，其次 assets 打包拷贝）→ 有模型文件时问答自动走 RAG 合成（子串与结构化路径共用），无模型文件自动降级纯检索。模型打包是剩余的真机收尾项（见「已知限制」）。
+- **端侧 LLM RAG（已启用）**：`app/lib/llm/` 的 `LlmService` / `LlmRunner` / `RagSynthesizer` 已实现并通过单元测试，并已接入问答流程——`QaTab` 启动时经 `LlmModelResolver` 自动检测模型文件（优先应用文档目录，其次 assets 打包拷贝）→ 有模型文件时问答自动走 RAG 合成（子串与结构化路径共用），无模型文件自动降级纯检索。模型已注册进 `pubspec.yaml` assets 随包分发，首次启动自动复制到应用文档目录。
 - **云端增强**：设置页填 API Key 后解锁拍照 / Live 增强功能（默认关闭）。
 
 ## 构建流程
@@ -32,8 +32,8 @@ cp tools/out/kb.sqlite3 app/assets/kb/kb.sqlite3
 # 5. 下载端侧模型（可选，见下节）
 #    目标文件名：app/assets/models/qwen3-1.7b-instruct-q4_k_m.gguf
 #    注意：模型经「文件系统路径」加载（LlmService 检查 File(modelPath).existsSync()）。
-#    若打包进 assets（注册 pubspec 后），首次启动由 LlmModelResolver 自动复制到
-#    应用文档目录；当前 assets/models/ 未注册，真机需先完成打包步骤（见「已知限制」）。
+#    pubspec 已注册 assets/models/*.gguf，首次启动由 LlmModelResolver 自动复制到
+#    应用文档目录；真机/模拟器首次启动会拷贝 1.1GB 模型，需耐心等待。
 
 # 6. 运行 App
 cd app
@@ -51,7 +51,7 @@ flutter run
 
 国内网络可从 [ModelScope unsloth/Qwen3-1.7B-GGUF](https://www.modelscope.cn/models/unsloth/Qwen3-1.7B-GGUF) 下载 `Qwen3-1.7B-Q4_K_M.gguf`，重命名后放入 `app/assets/models/`。模型文件已被 `.gitignore`（`*.gguf`）排除，不会入库。
 
-**打包注意**：`pubspec.yaml` 的 assets 目前只注册 `assets/kb/kb.sqlite3`，`assets/models/` 未注册为 Flutter asset；`LlmService` 按文件系统路径（`File(modelPath).existsSync()`）检查模型。若将模型注册为 asset，首次启动 `LlmModelResolver` 会自动复制到应用文档目录；当前未注册，真机需先完成打包步骤（见「已知限制」）。
+**打包注意**：`pubspec.yaml` 已注册 `assets/models/qwen3-1.7b-instruct-q4_k_m.gguf`。`LlmService` 按文件系统路径（`File(modelPath).existsSync()`）检查模型；首次启动 `LlmModelResolver` 会把打包的模型自动复制到应用文档目录。模型文件被 `.gitignore`（`*.gguf`）排除，不会入库。
 
 ### real 测试
 
@@ -73,7 +73,8 @@ flutter test --run-skipped test/llm_real_test.dart
   - macOS 调试用 `LLAMA_LIBRARY_PATH=.../libllama.dylib flutter test --run-skipped test/llm_real_test.dart`；
   - 构建需 NDK + CMake；本机并行 ninja 会 OOM，用 `ninja -j2`。
   - 注意：`app/android/gradle.properties` 已固定 `org.gradle.java.home` 为 JDK 17（Gradle/AGP 8.7 不支持 JDK 25），`gradle-wrapper.properties` 已升级 gradle 8.9 / AGP 8.7.3（aapt2 才能解析 android-35 资源）。
-- **模型打包方式**：模型当前经文件系统路径加载（非 Flutter asset），`pubspec.yaml` 未注册 `assets/models/`；打包为 App 内资产需要额外工作（注册为资产或部署到应用文档目录）。
+- **iOS native libllama（已解决）**：iOS 的 `Llama.libraryPath` 为 null → 走 `DynamicLibrary.process()`，符号需静态链入 Runner。已交叉编译 `libllama_combined.a`（arm64 真机 + arm64/x86_64 模拟器，deployment target 13.0，无 Metal/OpenMP）并打包为 `app/ios/Runner/Frameworks/llama.xcframework`；`Runner.xcodeproj` 的 `OTHER_LDFLAGS[sdk=iphoneos*]` / `[sdk=iphonesimulator*]` 已按 SDK `-Wl,-force_load` 对应切片并 `-Wl,-exported_symbol,_llama_*` 保留 25 个全局导出符号（`DynamicLibrary.process()` 才能 dlsym），另链 `-framework Accelerate`（ggml-blas 的 vDSP）。`flutter build ios`（模拟器 + 真机，debug/release）已验证。
+- **模型打包（已解决）**：`pubspec.yaml` 已注册 `assets/models/qwen3-1.7b-instruct-q4_k_m.gguf`，`LlmModelResolver` 首次启动自动复制到应用文档目录后走文件系统路径加载。注意模型 1.1GB，打进 App 包后 ipa/apk 体积相应增大（App.framework/flutter_assets）。
 
 ## 免责声明
 

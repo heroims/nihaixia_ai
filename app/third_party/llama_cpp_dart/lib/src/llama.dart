@@ -41,7 +41,7 @@ class Llama {
   /// set llama.cpp library path
   static String? libraryPath = Platform.isAndroid
       ? "libllama.so"
-      : Platform.environment['LLAMA_LIBRARY_PATH'];
+      : (Platform.isIOS ? null : Platform.environment['LLAMA_LIBRARY_PATH']);
 
   /// Getter for the Llama library.
   ///
