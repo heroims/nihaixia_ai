@@ -109,6 +109,8 @@ class _SettingsTabState extends State<SettingsTab> {
       baseUrl: _url.text.trim(),
       apiKey: _key.text.trim(),
       defaultModel: model.isEmpty ? 'gpt-4o-mini' : model,
+      // 保留当前开关状态：保存表单不应隐式改变启用开关。
+      enabled: _cfg.enabled,
     );
     setState(() => _cfg = next);
     unawaited(CloudConfigStore.save(next));

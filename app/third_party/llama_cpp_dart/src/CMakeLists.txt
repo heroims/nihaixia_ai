@@ -30,6 +30,8 @@ set_target_properties(llama PROPERTIES OUTPUT_NAME llama_static)
 add_library(llama_abi_shim SHARED llama_abi_shim.cpp)
 set_target_properties(llama_abi_shim PROPERTIES OUTPUT_NAME llama)
 set_target_properties(llama_abi_shim PROPERTIES POSITION_INDEPENDENT_CODE ON)
+# 声明依赖：否则并行构建时 shim 可能在 llama 静态库完成前链接（undefined llama_modern_*）。
+target_link_libraries(llama_abi_shim PRIVATE llama ggml)
 
 # iOS needs the shim baked into a static archive (DynamicLibrary.process()).
 if(LLAMA_ABI_SHIM_STATIC)

@@ -1,8 +1,13 @@
 // app/lib/llm/llm_runner.dart
 // ignore_for_file: avoid_print
 import 'dart:async';
+import 'dart:convert';
+import 'dart:ffi' as ffi;
 import 'dart:isolate';
 
+// ignore: implementation_imports
+import 'package:llama_cpp_dart/src/llama_cpp.dart'
+    show Dartggml_log_callbackFunction;
 import 'package:llama_cpp_dart/llama_cpp_dart.dart';
 
 /// llama_cpp_dart 0.0.7 的隔离岛 Runner。
@@ -168,10 +173,44 @@ class _Pending {
 }
 
 void _isolateMain(SendPort mainPort) {
+  _bridgeLlamaLogs();
   final port = ReceivePort();
   mainPort.send(port.sendPort);
   final host = _IsolateHost(port, mainPort);
   port.listen(host.onMessage);
+}
+
+typedef _LlamaLogNative = ffi.Void Function(
+    ffi.Int32, ffi.Pointer<ffi.Char>, ffi.Pointer<ffi.Void>);
+typedef _LlamaLogDart = void Function(
+    int, ffi.Pointer<ffi.Char>, ffi.Pointer<ffi.Void>);
+
+/// 把 llama.cpp/ggml 的原生日志桥接到 Dart print（→ logcat）。
+///
+/// 必须在 runner isolate 内注册：Pointer.fromFunction 创建的回调只能被
+/// 创建它的 isolate 调用，跨 isolate 调用会触发 Dart 运行时 abort。
+/// 模型加载失败时 llama.cpp 会把原因打到日志，没有这个桥接在 Android 上
+/// 完全看不到（stderr 不进 logcat）。
+void _bridgeLlamaLogs() {
+  try {
+    final cb = ffi.Pointer.fromFunction<_LlamaLogNative>(_onLlamaLog);
+    Llama.lib.llama_log_set(cb, ffi.Pointer.fromAddress(0));
+    print('[LLM:iso] native log bridge installed');
+  } catch (e) {
+    print('[LLM:iso] log bridge failed: $e');
+  }
+}
+
+void _onLlamaLog(int level, ffi.Pointer<ffi.Char> text, ffi.Pointer<ffi.Void> _) {
+  final bytes = <int>[];
+  var i = 0;
+  while (true) {
+    final b = text[i++];
+    if (b == 0) break;
+    bytes.add(b);
+  }
+  final msg = utf8.decode(bytes, allowMalformed: true).trim();
+  if (msg.isNotEmpty) print('[llama.cpp] $msg');
 }
 
 class _IsolateHost {

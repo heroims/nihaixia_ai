@@ -40,6 +40,12 @@ android {
         main.java.srcDirs += 'src/main/kotlin'
     }
 
+    // gguf 模型（1.1GB）免压缩存储：流式复制时无需解压，安装包体积几乎不变
+    // （原 Deflate 压缩率仅 2%），首次启动复制速度大幅提升。
+    androidResources {
+        noCompress += ['gguf']
+    }
+
     defaultConfig {
         // TODO: Specify your own unique Application ID (https://developer.android.com/studio/build/application-id.html).
         applicationId "com.nihaixia.nihaixia_app"

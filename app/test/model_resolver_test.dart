@@ -41,4 +41,51 @@ void main() {
       reason: '应从 assets 复制模型内容到应用支持目录',
     );
   });
+
+  test('Android 平台通道复制成功时返回目标路径', () async {
+    LlmModelResolver.forceAndroidPathForTest = true;
+    addTearDown(() => LlmModelResolver.forceAndroidPathForTest = null);
+    final dir = await Directory.systemTemp.createTemp('model_resolver_test');
+    addTearDown(() => dir.delete(recursive: true));
+
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(
+      const MethodChannel('model_installer'),
+      (call) async {
+        expect(call.method, 'copyAssetToFile');
+        final args = call.arguments as Map;
+        expect(args['asset'], LlmModelResolver.assetPath);
+        // 模拟原生侧真实写出文件。
+        File(args['dest'] as String).writeAsBytesSync([1, 2, 3]);
+        return true;
+      },
+    );
+    addTearDown(() => TestDefaultBinaryMessengerBinding
+        .instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(const MethodChannel('model_installer'), null));
+
+    final path = await LlmModelResolver.resolve(overrideDir: dir);
+
+    expect(path, '${dir.path}/${LlmModelResolver.modelFileName}');
+  });
+
+  test('Android 平台通道失败时返回 null（降级纯检索）', () async {
+    LlmModelResolver.forceAndroidPathForTest = true;
+    addTearDown(() => LlmModelResolver.forceAndroidPathForTest = null);
+    final dir = await Directory.systemTemp.createTemp('model_resolver_test');
+    addTearDown(() => dir.delete(recursive: true));
+
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(
+      const MethodChannel('model_installer'),
+      (call) async => throw PlatformException(code: 'copy_failed'),
+    );
+    addTearDown(() => TestDefaultBinaryMessengerBinding
+        .instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(const MethodChannel('model_installer'), null));
+
+    final path = await LlmModelResolver.resolve(overrideDir: dir);
+
+    expect(path, isNull);
+  });
 }
