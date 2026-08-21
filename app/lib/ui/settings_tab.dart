@@ -26,6 +26,7 @@ class SettingsTab extends StatefulWidget {
 class _SettingsTabState extends State<SettingsTab> {
   final _url = TextEditingController();
   final _key = TextEditingController();
+  final _model = TextEditingController();
   CloudConfig _cfg = const CloudConfig();
 
   @override
@@ -42,6 +43,7 @@ class _SettingsTabState extends State<SettingsTab> {
         _cfg = cfg;
         _url.text = cfg.baseUrl;
         _key.text = cfg.apiKey;
+        _model.text = cfg.defaultModel;
       });
     } catch (e) {
       debugPrint('cloud config load failed: $e');
@@ -59,9 +61,16 @@ class _SettingsTabState extends State<SettingsTab> {
       const SizedBox(height: 8),
       TextField(controller: _key, obscureText: true, decoration: const InputDecoration(labelText: 'API Key')),
       const SizedBox(height: 8),
+      TextField(controller: _model, decoration: const InputDecoration(labelText: '模型名', hintText: 'gpt-4o-mini')),
+      const SizedBox(height: 8),
       FilledButton(onPressed: _save, child: const Text('保存')),
-      if (_cfg.isEnabled)
-        const Padding(padding: EdgeInsets.only(top: 8), child: Text('✅ 已启用', style: TextStyle(color: Colors.green))),
+      SwitchListTile(
+        contentPadding: EdgeInsets.zero,
+        title: const Text('启用云端增强'),
+        subtitle: Text(_cfg.isEnabled ? '已启用（问答/拍照将优先走云端）' : '已关闭（仅使用端侧模型）'),
+        value: _cfg.isEnabled,
+        onChanged: (v) => _toggleEnabled(v),
+      ),
       const SizedBox(height: 8),
       const Text('API Key 明文存储于本机', style: TextStyle(fontSize: 12, color: Colors.grey)),
       const Divider(),
@@ -73,6 +82,21 @@ class _SettingsTabState extends State<SettingsTab> {
     ]);
   }
 
+  /// 开关只切换启用状态，不清空已填的 URL/Key/模型名。
+  void _toggleEnabled(bool v) {
+    final model = _model.text.trim();
+    final next = CloudConfig(
+      baseUrl: _url.text.trim(),
+      apiKey: _key.text.trim(),
+      defaultModel: model.isEmpty ? 'gpt-4o-mini' : model,
+      enabled: v,
+    );
+    setState(() => _cfg = next);
+    unawaited(CloudConfigStore.save(next));
+    ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(v ? '云端增强已启用' : '云端增强已关闭')));
+  }
+
   void _save() {
     final error = validateCloudUrl(_url.text);
     if (error != null) {
@@ -80,7 +104,12 @@ class _SettingsTabState extends State<SettingsTab> {
           .showSnackBar(SnackBar(content: Text(error)));
       return;
     }
-    final next = CloudConfig(baseUrl: _url.text.trim(), apiKey: _key.text.trim());
+    final model = _model.text.trim();
+    final next = CloudConfig(
+      baseUrl: _url.text.trim(),
+      apiKey: _key.text.trim(),
+      defaultModel: model.isEmpty ? 'gpt-4o-mini' : model,
+    );
     setState(() => _cfg = next);
     unawaited(CloudConfigStore.save(next));
     ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('已保存')));

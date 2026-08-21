@@ -1,6 +1,7 @@
 import 'package:drift/drift.dart';
 import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:nihaixia_app/cloud/cloud_config.dart';
 import 'package:nihaixia_app/core/database.dart';
 import 'package:nihaixia_app/llm/llm_service.dart';
 import 'package:nihaixia_app/llm/rag_synthesizer.dart';
@@ -211,6 +212,107 @@ void main() {
       llm.lastPrompt,
       contains('黄帝内经·上古天真论：上古之人，其知道者，法于阴阳，和于术数。'),
     );
+    await db.close();
+  });
+
+  test('配置云端时优先云端，端侧不被调用', () async {
+    final db = AppDatabase(NativeDatabase.memory());
+    await db.into(db.rawChunks).insert(RawChunksCompanion.insert(
+          source: const Value('黄帝内经'),
+          heading: const Value('上古天真论'),
+          content: '上古之人，其知道者，法于阴阳，和于术数。',
+        ));
+
+    final llm = _FakeLlmService('端侧回答');
+    const cfg = CloudConfig(baseUrl: 'https://api.example.com/v1', apiKey: 'k');
+    var cloudCalls = 0;
+    final synth = RagSynthesizer(llm, cloud: cfg, chatOverride: (c, msgs) async {
+      cloudCalls++;
+      return '<think>推理</think>云端回答';
+    });
+    final r = await QaService(db, synthesizer: synth).answer('什么是法于阴阳');
+
+    expect(cloudCalls, 1);
+    expect(llm.callCount, 0);
+    expect(r.hasAnswer, true);
+    expect(r.answer, '云端回答'); // think 块已剥离
+    await db.close();
+  });
+
+  test('云端失败自动回退端侧', () async {
+    final db = AppDatabase(NativeDatabase.memory());
+    await db.into(db.rawChunks).insert(RawChunksCompanion.insert(
+          source: const Value('黄帝内经'),
+          heading: const Value('上古天真论'),
+          content: '上古之人，其知道者，法于阴阳，和于术数。',
+        ));
+
+    final llm = _FakeLlmService('端侧回答');
+    const cfg = CloudConfig(baseUrl: 'https://api.example.com/v1', apiKey: 'k');
+    final synth = RagSynthesizer(llm, cloud: cfg, chatOverride: (c, msgs) async {
+      throw Exception('网络错误');
+    });
+    final r = await QaService(db, synthesizer: synth).answer('什么是法于阴阳');
+
+    expect(llm.callCount, 1);
+    expect(r.hasAnswer, true);
+    expect(r.answer, '端侧回答');
+    await db.close();
+  });
+
+  test('仅配置云端（无本地模型）也能合成', () async {
+    final db = AppDatabase(NativeDatabase.memory());
+    await db.into(db.rawChunks).insert(RawChunksCompanion.insert(
+          source: const Value('黄帝内经'),
+          heading: const Value('上古天真论'),
+          content: '上古之人，其知道者，法于阴阳，和于术数。',
+        ));
+
+    const cfg = CloudConfig(baseUrl: 'https://api.example.com/v1', apiKey: 'k');
+    final synth = RagSynthesizer(null, cloud: cfg, chatOverride: (c, msgs) async {
+      return '纯云端回答';
+    });
+    final r = await QaService(db, synthesizer: synth).answer('什么是法于阴阳');
+
+    expect(r.hasAnswer, true);
+    expect(r.answer, '纯云端回答');
+    await db.close();
+  });
+
+  test('stripThink 处理闭合/未闭合/无思考块', () {
+    expect(RagSynthesizer.stripThink('<think>abc</think>正文'), '正文');
+    expect(RagSynthesizer.stripThink('<think>abc截断'), '');
+    expect(RagSynthesizer.stripThink('普通回答'), '普通回答');
+  });
+
+  test('cloudProvider 每次提问实时读取配置（保存后无需重启）', () async {
+    final db = AppDatabase(NativeDatabase.memory());
+    await db.into(db.rawChunks).insert(RawChunksCompanion.insert(
+          source: const Value('黄帝内经'),
+          heading: const Value('上古天真论'),
+          content: '上古之人，其知道者，法于阴阳，和于术数。',
+        ));
+
+    final llm = _FakeLlmService('端侧回答');
+    var providerCalls = 0;
+    CloudConfig? current; // 初始未配置
+    final synth = RagSynthesizer(llm, cloudProvider: () async {
+      providerCalls++;
+      return current;
+    }, chatOverride: (c, msgs) async => '云端回答');
+
+    // 第一次：无云端 → 走端侧
+    final r1 = await QaService(db, synthesizer: synth).answer('什么是法于阴阳');
+    expect(r1.answer, '端侧回答');
+
+    // 用户在设置页保存云端配置后
+    current = const CloudConfig(baseUrl: 'https://api.example.com/v1', apiKey: 'k');
+
+    // 第二次：立即走云端，无需重建合成器
+    final r2 = await QaService(db, synthesizer: synth).answer('什么是法于阴阳');
+    expect(providerCalls, 2);
+    expect(llm.callCount, 1); // 端侧只在第一次被调用
+    expect(r2.answer, '云端回答');
     await db.close();
   });
 }

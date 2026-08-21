@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
+import 'package:nihaixia_app/cloud/cloud_config.dart';
 import 'package:nihaixia_app/core/database.dart';
 import 'package:nihaixia_app/core/models.dart';
 import 'package:nihaixia_app/llm/llm_service.dart';
@@ -48,29 +49,49 @@ class _QaTabState extends State<QaTab> {
     super.dispose();
   }
 
-  /// 异步接线端侧 LLM：模型可解析且可用 → 以带 RAG 合成器的 QaService 替换
-  /// 纯检索服务；任一环节失败（无模型/不可用/异常）→ 保持纯检索，永不崩溃。
+  /// 异步接线 LLM 通道：云端配置或端侧模型任一可用 → 以带 RAG 合成器的
+  /// QaService 替换纯检索服务；全不可用 → 保持纯检索，永不崩溃。
   Future<void> _initLlm() async {
     final db = widget.db;
     if (db == null) return;
+    LlmService? llm;
     try {
       final path = await LlmModelResolver.resolve();
       debugPrint('[QaTab] LLM resolve: path=${path ?? "null"}');
-      if (path == null) return; // 无模型 → 纯检索
-      final llm = LlmService(modelPath: path);
-      if (!llm.isAvailable) {
-        debugPrint('[QaTab] LLM not available (model file missing/failed)');
-        return;
+      if (path != null) {
+        final l = LlmService(modelPath: path);
+        if (l.isAvailable) {
+          llm = l;
+        } else {
+          debugPrint('[QaTab] LLM not available (model file missing/failed)');
+        }
       }
-      if (!mounted) return;
-      setState(() {
-        _llm = llm;
-        _service = QaService(db, synthesizer: RagSynthesizer(llm));
-      });
-      debugPrint('[QaTab] LLM wired: RAG synthesizer active');
     } catch (e) {
-      debugPrint('[QaTab] LLM init failed, degrade to pure retrieval: $e');
+      debugPrint('[QaTab] LLM init failed: $e');
     }
+    // 云端配置不在此处快照：合成器每次提问时实时读取，设置保存后立即生效。
+    if (llm == null) {
+      final cfg = await CloudConfigStore.load();
+      if (!cfg.isEnabled) return; // 无任何通道 → 纯检索
+    }
+    if (!mounted) {
+      unawaited(llm?.dispose());
+      return;
+    }
+    setState(() {
+      _llm = llm;
+      _service = QaService(
+          db,
+          synthesizer: RagSynthesizer(llm, cloudProvider: () async {
+            try {
+              return await CloudConfigStore.load();
+            } catch (e) {
+              debugPrint('[QaTab] cloud config load failed: $e');
+              return null;
+            }
+          }));
+    });
+    debugPrint('[QaTab] LLM wired: local=${llm != null}, cloud=per-call');
   }
 
   Future<void> _ask() async {

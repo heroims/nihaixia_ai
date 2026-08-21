@@ -53,4 +53,25 @@ void main() {
     expect(loaded.apiKey, cfg.apiKey);
     expect(loaded.defaultModel, cfg.defaultModel);
   });
+
+  test('enabled=false 时即使配置完整也不启用', () {
+    const cfg = CloudConfig(baseUrl: 'https://api.example.com/v1', apiKey: 'k', enabled: false);
+    expect(cfg.isEnabled, false);
+    expect(CloudClient.isPhotoEnabled(cfg), false);
+    expect(CloudClient.isLiveEnabled(cfg), false);
+  });
+
+  test('enabled 开关持久化往返（关闭后重载仍关闭）', () async {
+    SharedPreferences.setMockInitialValues({});
+    const on = CloudConfig(baseUrl: 'https://api.example.com/v1', apiKey: 'k');
+    await CloudConfigStore.save(on);
+    expect((await CloudConfigStore.load()).isEnabled, true);
+
+    const off = CloudConfig(baseUrl: 'https://api.example.com/v1', apiKey: 'k', enabled: false);
+    await CloudConfigStore.save(off);
+    final reloaded = await CloudConfigStore.load();
+    expect(reloaded.enabled, false);
+    expect(reloaded.apiKey, 'k'); // 密钥保留，不清空
+    expect(reloaded.isEnabled, false);
+  });
 }

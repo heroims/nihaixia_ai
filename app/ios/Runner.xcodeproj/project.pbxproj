@@ -45,7 +45,7 @@
 		05E7AE773EDACFA13F474830 /* Pods_RunnerTests.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = Pods_RunnerTests.framework; sourceTree = BUILT_PRODUCTS_DIR; };
 		1498D2321E8E86230040F4C2 /* GeneratedPluginRegistrant.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = GeneratedPluginRegistrant.h; sourceTree = "<group>"; };
 		1498D2331E8E89220040F4C2 /* GeneratedPluginRegistrant.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = GeneratedPluginRegistrant.m; sourceTree = "<group>"; };
-		31C480417CC9E9F309E8C05F /* llama.xcframework */ = {isa = PBXFileReference; includeInIndex = 1; name = llama.xcframework; path = Frameworks/llama.xcframework; sourceTree = "<group>"; };
+		31C480417CC9E9F309E8C05F /* llama.xcframework */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = wrapper.xcframework; name = llama.xcframework; path = Frameworks/llama.xcframework; sourceTree = "<group>"; };
 		331C807B294A618700263BE5 /* RunnerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RunnerTests.swift; sourceTree = "<group>"; };
 		331C8081294A63A400263BE5 /* RunnerTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = RunnerTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		3B3967151E833CAA004F5970 /* AppFrameworkInfo.plist */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; name = AppFrameworkInfo.plist; path = Flutter/AppFrameworkInfo.plist; sourceTree = "<group>"; };
@@ -163,7 +163,6 @@
 				A719F7D457C844B5B1E3DD5F /* Pods-RunnerTests.release.xcconfig */,
 				D83075B1FAB9E0CEF1D9ECCB /* Pods-RunnerTests.profile.xcconfig */,
 			);
-			name = Pods;
 			path = Pods;
 			sourceTree = "<group>";
 		};
@@ -484,7 +483,8 @@
 				"OTHER_LDFLAGS[sdk=iphoneos*]" = (
 					"$(inherited)",
 					"-Wl,-force_load,$(PROJECT_DIR)/Runner/Frameworks/llama.xcframework/ios-arm64/libllama_combined.a",
-					"-framework Accelerate",
+					"-framework",
+					Accelerate,
 					"-Wl,-exported_symbol,_llama_backend_free",
 					"-Wl,-exported_symbol,_llama_backend_init",
 					"-Wl,-exported_symbol,_llama_batch_free",
@@ -517,7 +517,8 @@
 				"OTHER_LDFLAGS[sdk=iphonesimulator*]" = (
 					"$(inherited)",
 					"-Wl,-force_load,$(PROJECT_DIR)/Runner/Frameworks/llama.xcframework/ios-arm64_x86_64-simulator/libllama_sim_universal.a",
-					"-framework Accelerate",
+					"-framework",
+					Accelerate,
 					"-Wl,-exported_symbol,_llama_backend_free",
 					"-Wl,-exported_symbol,_llama_backend_init",
 					"-Wl,-exported_symbol,_llama_batch_free",
@@ -734,12 +735,14 @@
 				"OTHER_LDFLAGS[sdk=iphoneos*]" = (
 					"$(inherited)",
 					"-Wl,-force_load,$(PROJECT_DIR)/Runner/Frameworks/llama.xcframework/ios-arm64/libllama_combined.a",
-					"-framework Accelerate",
+					"-framework",
+					Accelerate,
 				);
 				"OTHER_LDFLAGS[sdk=iphonesimulator*]" = (
 					"$(inherited)",
 					"-Wl,-force_load,$(PROJECT_DIR)/Runner/Frameworks/llama.xcframework/ios-arm64_x86_64-simulator/libllama_sim_universal.a",
-					"-framework Accelerate",
+					"-framework",
+					Accelerate,
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = com.nihaixia.nihaixiaApp;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -768,7 +771,8 @@
 				"OTHER_LDFLAGS[sdk=iphoneos*]" = (
 					"$(inherited)",
 					"-Wl,-force_load,$(PROJECT_DIR)/Runner/Frameworks/llama.xcframework/ios-arm64/libllama_combined.a",
-					"-framework Accelerate",
+					"-framework",
+					Accelerate,
 					"-Wl,-exported_symbol,_llama_backend_free",
 					"-Wl,-exported_symbol,_llama_backend_init",
 					"-Wl,-exported_symbol,_llama_batch_free",
@@ -801,7 +805,8 @@
 				"OTHER_LDFLAGS[sdk=iphonesimulator*]" = (
 					"$(inherited)",
 					"-Wl,-force_load,$(PROJECT_DIR)/Runner/Frameworks/llama.xcframework/ios-arm64_x86_64-simulator/libllama_sim_universal.a",
-					"-framework Accelerate",
+					"-framework",
+					Accelerate,
 					"-Wl,-exported_symbol,_llama_backend_free",
 					"-Wl,-exported_symbol,_llama_backend_init",
 					"-Wl,-exported_symbol,_llama_batch_free",

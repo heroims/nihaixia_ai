@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:ffi';
 import 'dart:io';
 import 'dart:math';
+import 'dart:typed_data';
 
 import 'package:ffi/ffi.dart';
 import 'package:llama_cpp_dart/src/sampling_params.dart';
@@ -31,6 +32,14 @@ class Llama {
 
   /// Temporary storage for invalid C characters.
   List<int> lastTokens = [];
+
+  /// Bytes of the latest token whose UTF-8 sequence is not yet complete.
+  ///
+  /// Byte-level BPE tokenizers may split a multi-byte character across token
+  /// boundaries; decoding each token in isolation would turn those partial
+  /// sequences into U+FFFD replacement characters. The tail bytes are kept
+  /// here until the following tokens complete the sequence.
+  final List<int> _pendingBytes = [];
 
   /// Length of the ouput. Default is -1.
   int length = -1;
@@ -146,6 +155,7 @@ class Llama {
   setPrompt(String prompt) {
     // context = lib.llama_new_context_with_model(model, contextParams.get());
     tokensList = tokenize(prompt, true);
+    _pendingBytes.clear();
 
     if (length != -1) {
       int nCtx = lib.llama_n_ctx(context);
@@ -233,8 +243,10 @@ class Llama {
     // Render the token text only when it is neither BOS nor EOS; otherwise the
     // special-token spelling (e.g. "<|im_end|>") would leak into the output.
     if (!isEOSToken && newTokenId.value != lib.llama_token_bos(model)) {
-      // Convert the token ID to its string representation.
-      newTokenStr = tokenToPiece(newTokenId.value);
+      // Accumulate raw bytes and emit only complete UTF-8 sequences so that
+      // characters split across token boundaries are not corrupted.
+      _pendingBytes.addAll(tokenToPieceBytes(newTokenId.value));
+      newTokenStr = _drainUtf8();
     }
 
     // Update the batch and context for the next token generation.
@@ -358,5 +370,44 @@ class Llama {
     } finally {
       malloc.free(result);
     }
+  }
+
+  /// Raw UTF-8 bytes of a token piece, without any decoding.
+  Uint8List tokenToPieceBytes(int token) {
+    const bufferSize = 256;
+    Pointer<Char> result = malloc.allocate<Char>(bufferSize);
+    try {
+      int bytesWritten =
+          lib.llama_token_to_piece(model, token, result, bufferSize);
+      if (bytesWritten < 0) bytesWritten = 0;
+      if (bytesWritten > bufferSize) bytesWritten = bufferSize;
+      return Uint8List.fromList(
+          result.cast<Uint8>().asTypedList(bytesWritten));
+    } finally {
+      malloc.free(result);
+    }
+  }
+
+  /// Decodes complete UTF-8 sequences from [_pendingBytes] and keeps the
+  /// incomplete tail for the next call. A byte that is genuinely malformed
+  /// (not merely split across tokens) is skipped so decoding can never stall.
+  String _drainUtf8() {
+    if (_pendingBytes.isEmpty) return "";
+    String out;
+    int cut;
+    try {
+      out = utf8.decode(_pendingBytes);
+      cut = _pendingBytes.length;
+    } on FormatException catch (e) {
+      cut = e.offset ?? 0;
+      out = cut > 0 ? utf8.decode(_pendingBytes.sublist(0, cut)) : "";
+    }
+    if (cut > 0) {
+      _pendingBytes.removeRange(0, cut);
+    } else {
+      // Malformed leading byte: drop it instead of stalling forever.
+      _pendingBytes.removeAt(0);
+    }
+    return out;
   }
 }
