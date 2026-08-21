@@ -63,7 +63,9 @@ class LlmService {
       await _runner!.ensureLoaded(modelPath: modelPath, nCtx: ctxSize);
       _loaded = true;
       debugPrint('[LLM] generate: calling runner, promptLen=${prompt.length}');
-      final out = await _runner!.generate(prompt);
+      // 端侧模型生成较慢（物理机实测 0.8-5 tok/s），300s 容易在思考阶段被截断，
+      // 扩到 600s 以容纳 Qwen3 的完整推理链。
+      final out = await _runner!.generate(prompt, timeout: const Duration(seconds: 600));
       debugPrint('[LLM] generate: runner returned outLen=${out.length}');
       return out;
     } catch (e) {

@@ -94,12 +94,20 @@ class RagSynthesizer {
     }
     final out = await local.generate(prompt);
     debugPrint('[RAG] synthesize: llm.generate returned outLen=${out?.length}');
-    // Qwen3 默认输出 <think>…</think> 推理块，正文在其后；剥离后才是给用户的回答。
+    // Qwen3 默认输出  推理块，正文在其后；剥离后才是给用户的回答。
     final answer = stripThink(out ?? '');
     // 空/空白输出视为不可用（Task 19 Important #2）：LLM 可能只回换行/占位符，
     // 或生成被截断在思考块内（剥离后为空），QaService 据此走检索原文降级，
     // 不让空串冒充回答。
     if (answer.isEmpty) {
+      // 但如果是超长输出被截断（例如思考块只吐出一半），保留原始内容作为兜底，
+      // 让用户至少看到端侧模型在思考，而不是直接退回纯检索。
+      final raw = (out ?? '').trim();
+      if (raw.isNotEmpty) {
+        debugPrint('[RAG] synthesize: partial output retained, outLen=${raw.length}');
+        return SynthResult(raw, 'local',
+            note: '端侧模型响应较慢，已返回部分结果');
+      }
       debugPrint('[RAG] synthesize: empty output after strip, return null (degrade)');
       return null;
     }
