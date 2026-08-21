@@ -14,6 +14,7 @@ dependencies:
   path_provider: ^2.1.2
   path: ^1.9.0
   shared_preferences: ^2.2.3
+  flutter_secure_storage: ^9.2.4
   http: ^1.2.0
   llama_cpp_dart:
     path: third_party/llama_cpp_dart

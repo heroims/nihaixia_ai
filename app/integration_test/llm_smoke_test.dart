@@ -10,10 +10,9 @@ import 'package:integration_test/integration_test.dart';
 import 'package:nihaixia_app/llm/llm_service.dart';
 import 'package:nihaixia_app/llm/model_resolver.dart';
 
+// ignore_for_file: avoid_print
 typedef _LogNative = ffi.Void Function(
     ffi.Int32, ffi.Pointer<ffi.Char>, ffi.Pointer<ffi.Void>);
-typedef _LogDart = void Function(
-    int, ffi.Pointer<ffi.Char>, ffi.Pointer<ffi.Void>);
 
 void main() {
   final binding = IntegrationTestWidgetsFlutterBinding.ensureInitialized();

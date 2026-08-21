@@ -5,6 +5,7 @@ import 'package:flutter_markdown/flutter_markdown.dart';
 import 'package:nihaixia_app/cloud/cloud_config.dart';
 import 'package:nihaixia_app/core/database.dart';
 import 'package:nihaixia_app/core/models.dart';
+import 'package:nihaixia_app/llm/inference_settings.dart';
 import 'package:nihaixia_app/llm/llm_service.dart';
 import 'package:nihaixia_app/llm/model_resolver.dart';
 import 'package:nihaixia_app/llm/rag_synthesizer.dart';
@@ -38,41 +39,60 @@ class _QaTabState extends State<QaTab> {
     super.initState();
     final db = widget.db;
     if (db != null) _service = QaService(db);
+    // 推理模式切换（设置页）→ 重新接线问答服务。
+    InferenceSettings.instance.addListener(_onModeChanged);
     _initLlm();
   }
 
   @override
   void dispose() {
+    InferenceSettings.instance.removeListener(_onModeChanged);
     _controller.dispose();
     _scrollController.dispose();
     unawaited(_llm?.dispose());
     super.dispose();
   }
 
-  /// 异步接线 LLM 通道：云端配置或端侧模型任一可用 → 以带 RAG 合成器的
-  /// QaService 替换纯检索服务；全不可用 → 保持纯检索，永不崩溃。
+  void _onModeChanged() {
+    if (!mounted) return;
+    debugPrint('[QaTab] inference mode changed, rewiring...');
+    unawaited(_initLlm());
+  }
+
+  /// 按推理模式异步接线问答服务：
+  /// - 纯检索：不解析模型、不接合成器（省去 1.1GB 资产复制与加载）；
+  /// - 端侧模型：仅本地 llama.cpp，不读云端配置；
+  /// - 云端优先：云端实时读取 + 端侧兜底（默认）。
+  /// 全不可用 → 保持纯检索，永不崩溃。
   Future<void> _initLlm() async {
     final db = widget.db;
     if (db == null) return;
+    final mode = await InferenceSettings.instance.load().then((_) => InferenceSettings.instance.mode);
+    debugPrint('[QaTab] inference mode=$mode');
+
+    // 先释放旧通道（模式切换时可能持有上一个 LlmService）。
+    final old = _llm;
+    _llm = null;
+    unawaited(old?.dispose());
+
     LlmService? llm;
-    try {
-      final path = await LlmModelResolver.resolve();
-      debugPrint('[QaTab] LLM resolve: path=${path ?? "null"}');
-      if (path != null) {
-        final l = LlmService(modelPath: path);
-        if (l.isAvailable) {
-          llm = l;
-        } else {
-          debugPrint('[QaTab] LLM not available (model file missing/failed)');
-        }
-      }
-    } catch (e) {
-      debugPrint('[QaTab] LLM init failed: $e');
+    var wireCloud = false;
+    switch (mode) {
+      case InferenceMode.retrievalOnly:
+        break;
+      case InferenceMode.localLlm:
+        llm = await _resolveLocal();
+        break;
+      case InferenceMode.cloudFirst:
+        llm = await _resolveLocal();
+        wireCloud = true;
+        break;
     }
     // 云端配置不在此处快照：合成器每次提问时实时读取，设置保存后立即生效。
-    if (llm == null) {
-      final cfg = await CloudConfigStore.load();
-      if (!cfg.isEnabled) return; // 无任何通道 → 纯检索
+    if (llm == null && (!wireCloud || !(await _cloudEnabled()))) {
+      setState(() => _service = QaService(db)); // 无任何通道 → 纯检索
+      debugPrint('[QaTab] wired: retrieval-only');
+      return;
     }
     if (!mounted) {
       unawaited(llm?.dispose());
@@ -82,16 +102,41 @@ class _QaTabState extends State<QaTab> {
       _llm = llm;
       _service = QaService(
           db,
-          synthesizer: RagSynthesizer(llm, cloudProvider: () async {
-            try {
-              return await CloudConfigStore.load();
-            } catch (e) {
-              debugPrint('[QaTab] cloud config load failed: $e');
-              return null;
-            }
-          }));
+          synthesizer: RagSynthesizer(llm, cloudProvider: wireCloud ? _loadCloudConfig : null));
     });
-    debugPrint('[QaTab] LLM wired: local=${llm != null}, cloud=per-call');
+    debugPrint('[QaTab] wired: mode=$mode local=${llm != null}, cloud=${wireCloud ? "per-call" : "off"}');
+  }
+
+  Future<LlmService?> _resolveLocal() async {
+    try {
+      final path = await LlmModelResolver.resolve();
+      debugPrint('[QaTab] LLM resolve: path=${path ?? "null"}');
+      if (path == null) return null;
+      final l = LlmService(modelPath: path);
+      if (l.isAvailable) return l;
+      debugPrint('[QaTab] LLM not available (model file missing/failed)');
+    } catch (e) {
+      debugPrint('[QaTab] LLM init failed: $e');
+    }
+    return null;
+  }
+
+  Future<bool> _cloudEnabled() async {
+    try {
+      return (await CloudConfigStore.load()).isEnabled;
+    } catch (e) {
+      debugPrint('[QaTab] cloud config load failed: $e');
+      return false;
+    }
+  }
+
+  Future<CloudConfig?> _loadCloudConfig() async {
+    try {
+      return await CloudConfigStore.load();
+    } catch (e) {
+      debugPrint('[QaTab] cloud config load failed: $e');
+      return null;
+    }
   }
 
   Future<void> _ask() async {

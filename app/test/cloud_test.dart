@@ -4,7 +4,30 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:nihaixia_app/cloud/cloud_config.dart';
 import 'package:nihaixia_app/cloud/cloud_client.dart';
 
+/// 内存版安全存储：单测注入 CloudConfigStore.secure。
+class InMemorySecureStore implements SecureStore {
+  final Map<String, String> values = {};
+  @override
+  Future<String?> read(String key) async => values[key];
+  @override
+  Future<void> write(String key, String value) async => values[key] = value;
+  @override
+  Future<void> delete(String key) async => values.remove(key);
+}
+
 void main() {
+  late InMemorySecureStore secure;
+
+  setUp(() {
+    secure = InMemorySecureStore();
+    CloudConfigStore.secure = secure;
+    SharedPreferences.setMockInitialValues({});
+  });
+
+  tearDown(() {
+    CloudConfigStore.secure = SystemSecureStore();
+  });
+
   test('配置未设置时增强功能关闭', () {
     const cfg = CloudConfig(baseUrl: '', apiKey: '');
     expect(cfg.isEnabled, false);
@@ -23,7 +46,7 @@ void main() {
     final body = CloudClient.buildChatBody(cfg, messages: [
       {'role': 'user', 'content': '你好'},
     ], stream: false);
-    expect(body['model'], 'gpt-4o-mini');
+    expect(body['model'], 'agnes-2.0-flash');
     expect(body['messages'], isA<List>());
   });
 
@@ -73,5 +96,39 @@ void main() {
     expect(reloaded.enabled, false);
     expect(reloaded.apiKey, 'k'); // 密钥保留，不清空
     expect(reloaded.isEnabled, false);
+  });
+
+  test('API Key 存入安全存储而非 SharedPreferences 明文', () async {
+    const cfg = CloudConfig(baseUrl: 'https://api.example.com/v1', apiKey: 'secret-key');
+    await CloudConfigStore.save(cfg);
+    // 安全存储里有。
+    expect(secure.values['cloud_api_key_secure'], 'secret-key');
+    // SharedPreferences 里没有明文残留。
+    final p = await SharedPreferences.getInstance();
+    expect(p.getString('cloud_api_key'), isNull);
+    final loaded = await CloudConfigStore.load();
+    expect(loaded.apiKey, 'secret-key');
+  });
+
+  test('历史明文 API Key 自动迁移进安全存储并删除明文', () async {
+    SharedPreferences.setMockInitialValues({'cloud_api_key': 'legacy-plain'});
+    final loaded = await CloudConfigStore.load();
+    expect(loaded.apiKey, 'legacy-plain');
+    expect(secure.values['cloud_api_key_secure'], 'legacy-plain');
+    final p = await SharedPreferences.getInstance();
+    expect(p.getString('cloud_api_key'), isNull); // 明文已清除
+  });
+
+  test('未配置时默认模型为 agnes-2.0-flash', () async {
+    final loaded = await CloudConfigStore.load();
+    expect(loaded.defaultModel, 'agnes-2.0-flash');
+  });
+
+  test('apiKey 为空保存时清空安全存储', () async {
+    secure.values['cloud_api_key_secure'] = 'old';
+    const cfg = CloudConfig(baseUrl: 'https://api.example.com/v1', apiKey: '');
+    await CloudConfigStore.save(cfg);
+    expect(secure.values.containsKey('cloud_api_key_secure'), false);
+    expect((await CloudConfigStore.load()).apiKey, '');
   });
 }

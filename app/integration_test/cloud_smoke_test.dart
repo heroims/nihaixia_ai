@@ -2,6 +2,7 @@
 // 云端增强冒烟测试：从真机/模拟器经真实 http 栈请求 OpenAI 兼容 endpoint。
 // 运行前先在本机启动 mock 服务器（10.0.2.2 是模拟器访问宿主机的别名）：
 //   python3 tools/mock_openai_server.py 8765
+// ignore_for_file: avoid_print
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
 import 'package:nihaixia_app/cloud/cloud_client.dart';

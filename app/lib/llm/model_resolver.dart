@@ -21,7 +21,18 @@ import 'package:path_provider/path_provider.dart';
 class LlmModelResolver {
   static const modelFileName = 'qwen3-1.7b-instruct-q4_k_m.gguf';
   static const assetPath = 'assets/models/$modelFileName';
+
+  /// 设置页展示用的模型名（不含扩展名）。
+  static String get modelDisplayName =>
+      modelFileName.replaceAll(RegExp(r'\.gguf$'), '');
+
   static const _installChannel = MethodChannel('model_installer');
+
+  /// 端侧模型是否已安装到应用支持目录（设置页状态展示用）。
+  static Future<bool> isInstalled({Directory? overrideDir}) async {
+    final dir = overrideDir ?? await getApplicationSupportDirectory();
+    return File(p.join(dir.path, modelFileName)).existsSync();
+  }
 
   /// 测试注入点：flutter test 跑在宿主机上 Platform.isAndroid 恒为 false，
   /// 无法覆盖平台通道分支；置 true 强制走 Android 复制路径。

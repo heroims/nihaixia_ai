@@ -5,9 +5,6 @@ import 'dart:convert';
 import 'dart:ffi' as ffi;
 import 'dart:isolate';
 
-// ignore: implementation_imports
-import 'package:llama_cpp_dart/src/llama_cpp.dart'
-    show Dartggml_log_callbackFunction;
 import 'package:llama_cpp_dart/llama_cpp_dart.dart';
 
 /// llama_cpp_dart 0.0.7 的隔离岛 Runner。
@@ -182,8 +179,6 @@ void _isolateMain(SendPort mainPort) {
 
 typedef _LlamaLogNative = ffi.Void Function(
     ffi.Int32, ffi.Pointer<ffi.Char>, ffi.Pointer<ffi.Void>);
-typedef _LlamaLogDart = void Function(
-    int, ffi.Pointer<ffi.Char>, ffi.Pointer<ffi.Void>);
 
 /// 把 llama.cpp/ggml 的原生日志桥接到 Dart print（→ logcat）。
 ///
