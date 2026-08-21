@@ -21,7 +21,7 @@ void main() {
     expect(s.mode, InferenceMode.retrievalOnly);
 
     // 模拟重启：重置后重新加载。
-    s.setModeForTest(InferenceMode.cloudFirst, markUnloaded: true);
+    s.setModeForTest(InferenceMode.cloudFirst);
     await s.load();
     expect(s.mode, InferenceMode.retrievalOnly);
   });

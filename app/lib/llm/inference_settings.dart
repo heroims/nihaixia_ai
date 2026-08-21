@@ -28,19 +28,18 @@ class InferenceSettings extends ChangeNotifier {
   static const _default = InferenceMode.cloudFirst;
 
   InferenceMode _mode = _default;
-  bool _loaded = false;
 
   InferenceMode get mode => _mode;
 
   /// 启动时恢复持久化的模式；非法值回退默认。
+  /// 注意：每次调用都重新读取 SharedPreferences，确保设置页加载完后
+  /// 问答页也能拿到最新值（避免启动竞态导致模式显示不一致）。
   Future<void> load() async {
-    if (_loaded) return;
     final p = await SharedPreferences.getInstance();
     final idx = p.getInt(_prefKey);
     _mode = (idx == null || idx < 0 || idx >= InferenceMode.values.length)
         ? _default
         : InferenceMode.values[idx];
-    _loaded = true;
   }
 
   Future<void> setMode(InferenceMode m) async {
@@ -53,8 +52,7 @@ class InferenceSettings extends ChangeNotifier {
 
   /// 测试注入点：单例跨测试共享，直接重置内部状态。
   @visibleForTesting
-  void setModeForTest(InferenceMode m, {bool markUnloaded = false}) {
+  void setModeForTest(InferenceMode m) {
     _mode = m;
-    if (markUnloaded) _loaded = false;
   }
 }
