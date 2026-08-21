@@ -56,5 +56,10 @@ void main() {
       }
     }
     expect(answered, isTrue, reason: '模式轮切后提问应得到任一通道的回答');
+    // 流式解码回归：回答文本不得出现 U+FFFD（跨 token 拆分的中文字符
+    // 曾被错误冲掉显示为「�」）。
+    await tester.pump(const Duration(seconds: 1));
+    expect(find.textContaining('\uFFFD'), findsNothing,
+        reason: '回答文本不应包含乱码替换字符');
   }, timeout: const Timeout(Duration(minutes: 18)));
 }

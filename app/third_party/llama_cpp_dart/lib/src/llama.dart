@@ -398,29 +398,66 @@ class Llama {
   }
 
   /// Decodes complete UTF-8 sequences from [_pendingBytes] and keeps the
-  /// incomplete tail for the next call.
-  ///
-  /// Strategy: emit the longest strictly-valid prefix; a trailing partial
-  /// multi-byte sequence stays buffered until the next token completes it
-  /// (CJK characters are commonly split across token boundaries). Only when
-  /// NOT EVEN ONE byte can start a valid sequence do we treat the buffer as
-  /// junk and flush it leniently, so decoding can never throw or stall.
+  /// incomplete tail for the next call. See [drainUtf8Incremental].
   String _drainUtf8() {
     if (_pendingBytes.isEmpty) return "";
-    var end = _pendingBytes.length;
-    while (end > 0) {
-      try {
-        final out = utf8.decode(_pendingBytes.sublist(0, end));
-        _pendingBytes.removeRange(0, end);
-        return out;
-      } on FormatException {
-        end--;
+    final (out, consumed) = drainUtf8Incremental(_pendingBytes);
+    if (consumed > 0) _pendingBytes.removeRange(0, consumed);
+    return out;
+  }
+}
+
+/// Incremental UTF-8 decoder for token streams (pure function; unit-testable
+/// without native lib). Returns `(decodedText, consumedByteCount)`; removing
+/// the consumed prefix from the stream buffer is the caller's job.
+///
+/// CJK characters are frequently split across token boundaries, so a buffer
+/// may end mid-sequence. Strategy:
+/// - complete valid sequences are emitted;
+/// - an incomplete tail whose bytes so far are consistent with its leading
+///   byte's expected length is KEPT for the next token (never flushed as
+///   U+FFFD — that produced visible "�" artifacts);
+/// - genuinely invalid bytes (bad leading byte or broken continuation) are
+///   skipped one byte at a time so decoding can never throw nor stall.
+(String, int) drainUtf8Incremental(List<int> bytes) {
+  final out = StringBuffer();
+  var i = 0;
+
+  /// Expected total length for a sequence starting with [lead], or -1 if the
+  /// leading byte can never start a valid sequence.
+  int needOf(int lead) {
+    if (lead < 0x80) return 1;
+    if (lead >= 0xC2 && lead <= 0xDF) return 2;
+    if (lead >= 0xE0 && lead <= 0xEF) return 3;
+    if (lead >= 0xF0 && lead <= 0xF4) return 4;
+    return -1; // continuation byte as head, 0xC0/0xC1 overlong, 0xF5+ invalid
+  }
+
+  while (i < bytes.length) {
+    final need = needOf(bytes[i]);
+    if (need < 0) {
+      i++; // junk leading byte: skip
+      continue;
+    }
+    if (i + need > bytes.length) break; // incomplete tail: keep for next token
+    var ok = true;
+    for (var k = 1; k < need; k++) {
+      if ((bytes[i + k] & 0xC0) != 0x80) {
+        ok = false;
+        break;
       }
     }
-    // No byte position yields valid UTF-8: genuine garbage. Flush leniently
-    // to keep the stream moving instead of growing the buffer forever.
-    final junk = utf8.decode(_pendingBytes, allowMalformed: true);
-    _pendingBytes.clear();
-    return junk;
+    if (!ok) {
+      i++; // broken continuation: skip this head, rescan from next byte
+      continue;
+    }
+    try {
+      out.write(utf8.decode(bytes.sublist(i, i + need)));
+    } on FormatException {
+      i++; // surrogate half / other invalid sequence: skip head byte
+      continue;
+    }
+    i += need;
   }
+  return (out.toString(), i);
 }
