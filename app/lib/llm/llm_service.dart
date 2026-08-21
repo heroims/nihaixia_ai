@@ -1,4 +1,5 @@
 // app/lib/llm/llm_service.dart
+import 'package:flutter/foundation.dart';
 import 'dart:io';
 
 import 'llm_runner.dart';
@@ -12,7 +13,7 @@ class LlmService {
   LlmRunner? _runner;
   bool _failed = false;
 
-  LlmService({required this.modelPath, this.ctxSize = 2048});
+  LlmService({required this.modelPath, this.ctxSize = 4096});
 
   /// 一次性降级语义：加载失败后保持不可用，不再每次重试。
   bool get isAvailable => !_failed && File(modelPath).existsSync();
@@ -21,12 +22,19 @@ class LlmService {
   void markUnavailable() => _failed = true;
 
   Future<String?> generate(String prompt) async {
-    if (!isAvailable) return null;
+    if (!isAvailable) {
+      debugPrint('[LLM] generate: NOT available (failed=$_failed exists=${File(modelPath).existsSync()}), return null');
+      return null;
+    }
     try {
       _runner ??= LlmRunner();
       await _runner!.ensureLoaded(modelPath: modelPath, nCtx: ctxSize);
-      return await _runner!.generate(prompt);
-    } catch (_) {
+      debugPrint('[LLM] generate: calling runner, promptLen=${prompt.length}');
+      final out = await _runner!.generate(prompt);
+      debugPrint('[LLM] generate: runner returned outLen=${out.length}');
+      return out;
+    } catch (e) {
+      debugPrint('[LLM] generate: ERROR $e, mark failed');
       _runner?.dispose();
       _runner = null;
       _failed = true;

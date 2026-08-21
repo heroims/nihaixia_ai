@@ -13,6 +13,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <cstdio>
 #include <cstdlib>
 #include <cstring>
 
@@ -34,6 +35,26 @@ static float next_rng_float(struct llama_context * ctx);
 
 void     llama_modern_backend_init(void);
 void     llama_modern_backend_free(void);
+
+// llama.cpp log hook (NOT renamed by llama_abi_rename.h). Used to capture
+// native log output while debugging iOS model load failures.
+typedef void (*ggml_log_callback_fn)(int level, const char * text, void * user_data);
+extern void llama_log_set(ggml_log_callback_fn log_callback, void * user_data);
+
+static void shim_log_callback(int level, const char * text, void * user_data) {
+    (void) level;
+    (void) user_data;
+    if (!text) return;
+    const char * tmp = getenv("TMPDIR");
+    if (!tmp) tmp = "/tmp";
+    static char path[1024];
+    snprintf(path, sizeof(path), "%s/llama_native_log.txt", tmp);
+    FILE * f = fopen(path, "a");
+    if (f) {
+        fputs(text, f);
+        fclose(f);
+    }
+}
 struct shim_llama_model_params   llama_modern_model_default_params(void);
 struct shim_llama_context_params llama_modern_context_default_params(void);
 struct llama_model *  llama_modern_model_load_from_file(const char *, struct shim_llama_model_params);
@@ -59,6 +80,7 @@ void     llama_modern_batch_free(struct shim_llama_batch);
 
 void llama_backend_init(bool numa) {
     (void) numa;
+    llama_log_set(shim_log_callback, nullptr);
     llama_modern_backend_init();
 }
 
@@ -71,7 +93,7 @@ struct llama_model_params llama_model_default_params(void) {
     struct llama_model_params p;
     std::memset(&p, 0, sizeof(p));
     p.n_gpu_layers     = 0;
-    p.split_mode       = 0; // LLAMA_SPLIT_MODE_LAYER
+    p.split_mode       = 1; // LLAMA_SPLIT_MODE_LAYER (avoid NONE branch which requires >=1 device)
     p.main_gpu         = 0;
     p.tensor_split     = nullptr;
     p.progress_callback = nullptr;
@@ -119,8 +141,8 @@ struct llama_model * llama_load_model_from_file(const char * path_model, struct 
     m.devices                    = nullptr;
     m.tensor_buft_overrides      = nullptr;
     m.n_gpu_layers               = params.n_gpu_layers;
-    m.split_mode                 = params.split_mode;
-    m.main_gpu                   = params.main_gpu;
+    m.split_mode                 = 1; // force LLAMA_SPLIT_MODE_LAYER; NONE requires >=1 device which is false on iOS (dynamic-link env)
+    m.main_gpu                   = 0;
     m.tensor_split               = params.tensor_split;
     m.progress_callback          = params.progress_callback;
     m.progress_callback_user_data = params.progress_callback_user_data;

@@ -230,8 +230,9 @@ class Llama {
     // Prepare the string representation of the sampled token.
     String newTokenStr = "";
 
-    // Check that the sampled token is not the BOS token.
-    if (newTokenId.value != lib.llama_token_bos(model)) {
+    // Render the token text only when it is neither BOS nor EOS; otherwise the
+    // special-token spelling (e.g. "<|im_end|>") would leak into the output.
+    if (!isEOSToken && newTokenId.value != lib.llama_token_bos(model)) {
       // Convert the token ID to its string representation.
       newTokenStr = tokenToPiece(newTokenId.value);
     }

@@ -1,4 +1,5 @@
 // app/lib/llm/llm_runner.dart
+// ignore_for_file: avoid_print
 import 'dart:async';
 import 'dart:isolate';
 
@@ -26,20 +27,26 @@ class LlmRunner {
   /// 在后台 isolate 中加载模型。失败（含 native 库缺失）抛出异常。
   Future<void> ensureLoaded({
     required String modelPath,
-    int nCtx = 2048,
+    int nCtx = 4096,
     double temp = 0.3,
   }) async {
     if (_disposed) throw StateError('runner 已释放');
-    if (_loaded) return;
+    if (_loaded) {
+      print('[LLM] ensureLoaded: already loaded');
+      return;
+    }
+    print('[LLM] ensureLoaded: start, path=$modelPath nCtx=$nCtx');
     if (_isolate == null) {
       _control = ReceivePort();
       _isolate = await Isolate.spawn(_isolateMain, _control!.sendPort);
       _control!.listen(_onMessage);
       try {
         _port = await _boot.future.timeout(const Duration(seconds: 10));
+        print('[LLM] isolate booted');
       } on TimeoutException {
         // 启动超时：清空本次启动状态并换新 completer，令下次 ensureLoaded
         // 走全新 isolate，避免挂在永不完成的 _boot 上。
+        print('[LLM] isolate boot TIMEOUT, resetting');
         _isolate?.kill(priority: Isolate.immediate);
         _control?.close();
         _isolate = null;
@@ -50,39 +57,54 @@ class LlmRunner {
       }
     }
     final done = _loadDone = Completer<void>();
+    final sw = Stopwatch()..start();
     _port!.send({
       'cmd': 'load',
       'path': modelPath,
       'nCtx': nCtx,
       'temp': temp,
     });
-    await done.future.timeout(const Duration(seconds: 120));
+    try {
+      await done.future.timeout(const Duration(seconds: 120));
+      print('[LLM] ensureLoaded: load returned in ${sw.elapsedMilliseconds}ms, error=$_loadError');
+    } on TimeoutException {
+      print('[LLM] ensureLoaded: load TIMEOUT after 120s');
+      rethrow;
+    }
     if (_loadError != null) {
       final err = _loadError;
       _loadError = null;
+      print('[LLM] ensureLoaded: load error=$err');
       throw StateError('模型加载失败: $err');
     }
+    print('[LLM] ensureLoaded: done');
   }
 
   /// 生成全文，直到 EOS 或超时；超时返回已生成的文本并停止该轮。
   Future<String> generate(
     String prompt, {
-    Duration timeout = const Duration(seconds: 120),
+    Duration timeout = const Duration(seconds: 300),
   }) async {
     final port = _port;
     if (port == null || !_loaded) throw StateError('模型未加载');
     final id = _nextId++;
     final completer = Completer<String>();
     _pending[id] = _Pending(completer, StringBuffer());
+    final sw = Stopwatch()..start();
+    print('[LLM] generate: id=$id promptLen=${prompt.length}');
     port.send({'cmd': 'generate', 'id': id, 'prompt': prompt});
     try {
-      return await completer.future.timeout(timeout, onTimeout: () {
+      final out = await completer.future.timeout(timeout, onTimeout: () {
+        print('[LLM] generate: id=$id TIMEOUT after ${timeout.inSeconds}s');
         port.send({'cmd': 'stop', 'id': id});
         final p = _pending.remove(id);
         return p?.buffer.toString() ?? '';
       });
+      print('[LLM] generate: id=$id done in ${sw.elapsedMilliseconds}ms, outLen=${out.length}');
+      return out;
     } catch (e) {
       _pending.remove(id);
+      print('[LLM] generate: id=$id ERROR: $e');
       rethrow;
     }
   }
@@ -171,19 +193,23 @@ class _IsolateHost {
           final temp = (msg['temp'] as num).toDouble();
           final ctx = ContextParams()
             ..context = nCtx
-            ..batch = 512;
+            ..batch = nCtx;
           final sampler = SamplingParams()
             ..temp = temp
             ..topK = 40
             ..topP = 0.9;
+          print('[LLM:iso] load: constructing Llama for ${msg['path']}');
+          final sw = Stopwatch()..start();
           llama = Llama(
             msg['path'] as String,
             ModelParams(),
             ctx,
             sampler,
           );
+          print('[LLM:iso] load: Llama constructed in ${sw.elapsedMilliseconds}ms');
           mainPort.send({'type': 'loaded'});
         } catch (e) {
+          print('[LLM:iso] load: ERROR $e');
           mainPort.send({'type': 'load_error', 'message': e.toString()});
         }
         break;
@@ -223,17 +249,23 @@ class _IsolateHost {
     try {
       llama.setPrompt(
           '<|im_start|>user\n$prompt<|im_end|>\n<|im_start|>assistant\n');
+      print('[LLM:iso] generate $id: start');
+      final sw = Stopwatch()..start();
+      var tokens = 0;
       while (!stopRequested) {
         final (token, done) = llama.getNext();
         if (token.isNotEmpty) {
+          tokens++;
           mainPort.send({'type': 'token', 'id': id, 'text': token});
         }
         if (done) break;
         await Future<void>.delayed(Duration.zero);
       }
       llama.clear();
+      print('[LLM:iso] generate $id: done ${sw.elapsedMilliseconds}ms tokens=$tokens');
       mainPort.send({'type': 'done', 'id': id});
     } catch (e) {
+      print('[LLM:iso] generate $id: ERROR $e');
       mainPort.send({'type': 'error', 'id': id, 'message': e.toString()});
     } finally {
       // 成功/超时/异常任一路径都必须释放闸门，否则后续生成被永久拒绝。

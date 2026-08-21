@@ -55,14 +55,19 @@ class _QaTabState extends State<QaTab> {
     if (db == null) return;
     try {
       final path = await LlmModelResolver.resolve();
+      debugPrint('[QaTab] LLM resolve: path=${path ?? "null"}');
       if (path == null) return; // 无模型 → 纯检索
       final llm = LlmService(modelPath: path);
-      if (!llm.isAvailable) return;
+      if (!llm.isAvailable) {
+        debugPrint('[QaTab] LLM not available (model file missing/failed)');
+        return;
+      }
       if (!mounted) return;
       setState(() {
         _llm = llm;
         _service = QaService(db, synthesizer: RagSynthesizer(llm));
       });
+      debugPrint('[QaTab] LLM wired: RAG synthesizer active');
     } catch (e) {
       debugPrint('[QaTab] LLM init failed, degrade to pure retrieval: $e');
     }
