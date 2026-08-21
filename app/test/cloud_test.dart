@@ -77,11 +77,17 @@ void main() {
     expect(loaded.defaultModel, cfg.defaultModel);
   });
 
-  test('enabled=false 时即使配置完整也不启用', () {
+  test('遗留 enabled 字段仅影响 isEnabled，不再门控拍照/Live（模式为唯一真相源）', () {
     const cfg = CloudConfig(baseUrl: 'https://api.example.com/v1', apiKey: 'k', enabled: false);
     expect(cfg.isEnabled, false);
-    expect(CloudClient.isPhotoEnabled(cfg), false);
-    expect(CloudClient.isLiveEnabled(cfg), false);
+    // 拍照/Live 只看配置是否齐全；是否走云端问答由推理模式决定。
+    expect(CloudClient.isPhotoEnabled(cfg), true);
+    expect(CloudClient.isLiveEnabled(cfg), true);
+
+    const unconfigured = CloudConfig(baseUrl: '', apiKey: '', enabled: true);
+    expect(unconfigured.isEnabled, false);
+    expect(CloudClient.isPhotoEnabled(unconfigured), false);
+    expect(CloudClient.isLiveEnabled(unconfigured), false);
   });
 
   test('enabled 开关持久化往返（关闭后重载仍关闭）', () async {

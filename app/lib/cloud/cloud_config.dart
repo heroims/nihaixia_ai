@@ -18,6 +18,12 @@ class CloudConfig {
 
   bool get isEnabled =>
       enabled && baseUrl.trim().isNotEmpty && apiKey.trim().isNotEmpty;
+
+  /// 是否已配置可用云端（URL+Key 齐全）。与遗留的 [enabled] 开关无关：
+  /// 是否走云端由推理模式决定（仅「云端优先」模式接线云通道），
+  /// 本字段只回答「配置是否齐全」。
+  bool get isConfigured =>
+      baseUrl.trim().isNotEmpty && apiKey.trim().isNotEmpty;
 }
 
 /// 键值安全存储抽象：生产实现走系统 Keychain（iOS）/ Keystore（Android），

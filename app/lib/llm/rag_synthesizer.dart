@@ -44,8 +44,11 @@ class RagSynthesizer {
   })  : _cloudProvider = cloudProvider,
         _chatOverride = chatOverride;
 
+  /// 是否有可用回答通道。云端按「配置齐全」判断——是否启用云端由推理
+  /// 模式在接线时决定（非云端优先模式根本不会传入 cloud/cloudProvider），
+  /// 避免与遗留 enabled 开关形成两套矛盾的状态源。
   bool get enabled =>
-      (cloud?.isEnabled ?? false) || (llm?.isAvailable ?? false);
+      (cloud?.isConfigured ?? false) || (llm?.isAvailable ?? false);
 
   Future<SynthResult?> synthesize({
     required String question,
@@ -55,15 +58,16 @@ class RagSynthesizer {
     final local = llm;
     // 云端配置每次提问时实时读取，设置页保存后立即生效。
     final cfg = await (_cloudProvider?.call() ?? Future.value(cloud));
-    if ((cfg?.isEnabled ?? false) == false && (local == null || !local.isAvailable)) {
+    if ((cfg?.isConfigured ?? false) == false && (local == null || !local.isAvailable)) {
       debugPrint('[RAG] synthesize: no channel available, return null');
       return null;
     }
-    final prompt = PromptTemplates.rag(question: question, evidences: evidences);
+    final prompt = _buildPromptWithinBudget(question, evidences);
 
     // 云端优先：快且质量高；失败不阻断，落回端侧（原因记入 note 供 UI 展示）。
+    // 能走到这里说明接线时已处于云端优先模式，此处只看配置是否齐全。
     String? cloudError;
-    if (cfg != null && cfg.isEnabled) {
+    if (cfg != null && cfg.isConfigured) {
       try {
         debugPrint('[RAG] using cloud (${cfg.defaultModel})');
         final chat = _chatOverride ?? CloudClient.chat;
@@ -106,6 +110,27 @@ class RagSynthesizer {
   static String _preview(String s) {
     final t = s.trim();
     return t.length > 40 ? '${t.substring(0, 40)}...' : t;
+  }
+
+  /// 提示词上下文预算：nCtx=4096 token，按中文最坏 1 字/token 估算，
+  /// 留 ≥1000 token 生成余量 → 上限 3000 字符。超长 prompt 会写爆按
+  /// nCtx 分配的 batch 缓冲区导致原生崩溃（包内已补硬校验兜底）。
+  static const _maxPromptChars = 3000;
+
+  /// 组提示词并控制在预算内：先丢尾部证据（相关性递减，最少保 3 条），
+  /// 仍超限则硬剪。保证端侧/云端都拿到合法长度的输入。
+  static String _buildPromptWithinBudget(
+      String question, List<String> evidences) {
+    var evs = evidences.take(8).toList();
+    var prompt = PromptTemplates.rag(question: question, evidences: evs);
+    while (prompt.length > _maxPromptChars && evs.length > 3) {
+      evs = evs.sublist(0, evs.length - 1);
+      prompt = PromptTemplates.rag(question: question, evidences: evs);
+    }
+    if (prompt.length > _maxPromptChars) {
+      prompt = prompt.substring(0, _maxPromptChars);
+    }
+    return prompt;
   }
 
   /// 剥离 Qwen3 的思考块：完整 `<think>…</think>` 整段移除；

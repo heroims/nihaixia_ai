@@ -166,6 +166,15 @@ class Llama {
       }
     }
 
+    // 硬性上下文守卫：原检查在首次调用时被跳过（length == -1），超长
+    // prompt 会写爆按 nCtx 分配的 batch 缓冲区导致原生堆溢出崩溃。
+    // 这里无条件校验，把原生崩溃转为可被上层捕获降级的 Dart 异常。
+    final nCtxHard = lib.llama_n_ctx(context);
+    if (tokensList.length + 8 > nCtxHard) {
+      throw Exception(
+          "prompt too long: ${tokensList.length} tokens > n_ctx $nCtxHard");
+    }
+
     batch.n_tokens = 0;
 
     for (var i = 0; i < tokensList.length; i++) {
@@ -389,25 +398,29 @@ class Llama {
   }
 
   /// Decodes complete UTF-8 sequences from [_pendingBytes] and keeps the
-  /// incomplete tail for the next call. A byte that is genuinely malformed
-  /// (not merely split across tokens) is skipped so decoding can never stall.
+  /// incomplete tail for the next call.
+  ///
+  /// Strategy: emit the longest strictly-valid prefix; a trailing partial
+  /// multi-byte sequence stays buffered until the next token completes it
+  /// (CJK characters are commonly split across token boundaries). Only when
+  /// NOT EVEN ONE byte can start a valid sequence do we treat the buffer as
+  /// junk and flush it leniently, so decoding can never throw or stall.
   String _drainUtf8() {
     if (_pendingBytes.isEmpty) return "";
-    String out;
-    int cut;
-    try {
-      out = utf8.decode(_pendingBytes);
-      cut = _pendingBytes.length;
-    } on FormatException catch (e) {
-      cut = e.offset ?? 0;
-      out = cut > 0 ? utf8.decode(_pendingBytes.sublist(0, cut)) : "";
+    var end = _pendingBytes.length;
+    while (end > 0) {
+      try {
+        final out = utf8.decode(_pendingBytes.sublist(0, end));
+        _pendingBytes.removeRange(0, end);
+        return out;
+      } on FormatException {
+        end--;
+      }
     }
-    if (cut > 0) {
-      _pendingBytes.removeRange(0, cut);
-    } else {
-      // Malformed leading byte: drop it instead of stalling forever.
-      _pendingBytes.removeAt(0);
-    }
-    return out;
+    // No byte position yields valid UTF-8: genuine garbage. Flush leniently
+    // to keep the stream moving instead of growing the buffer forever.
+    final junk = utf8.decode(_pendingBytes, allowMalformed: true);
+    _pendingBytes.clear();
+    return junk;
   }
 }

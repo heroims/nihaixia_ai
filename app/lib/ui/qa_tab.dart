@@ -74,10 +74,15 @@ class _QaTabState extends State<QaTab> {
     if (db == null) return;
     final gen = ++_wiring;
 
-    // 先释放旧通道（模式切换时可能持有上一个 LlmService）。
+    // 先释放旧通道并等待其优雅收尾：llama_log_set 是进程级全局状态，
+    // 新旧两个 isolate 并发注册/复位回调会竞态（旧回调悬垂 → 原生侧
+    // 打日志写空地址 SIGSEGV，iOS 模拟器实测）。必须串行化销毁与创建。
     final old = _llm;
     _llm = null;
-    unawaited(old?.dispose());
+    try {
+      await old?.dispose();
+    } catch (_) {}
+    if (gen != _wiring) return;
 
     await InferenceSettings.instance.load();
     if (gen != _wiring) return;
@@ -153,7 +158,8 @@ class _QaTabState extends State<QaTab> {
 
   Future<bool> _cloudEnabled() async {
     try {
-      return (await CloudConfigStore.load()).isEnabled;
+      // 仅在「云端优先」接线且配置齐全时为真；模式判断已由 wireCloud 完成。
+      return (await CloudConfigStore.load()).isConfigured;
     } catch (e) {
       debugPrint('[QaTab] cloud config load failed: $e');
       return false;

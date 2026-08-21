@@ -6,9 +6,9 @@ import 'cloud_config.dart';
 
 class CloudClient {
   static const _timeout = Duration(seconds: 30);
+  static bool isPhotoEnabled(CloudConfig c) => c.isConfigured;
 
-  static bool isPhotoEnabled(CloudConfig c) => c.isEnabled;
-  static bool isLiveEnabled(CloudConfig c) => c.isEnabled;
+  static bool isLiveEnabled(CloudConfig c) => c.isConfigured;
 
   /// 拼接 OpenAI 兼容 endpoint：去 baseUrl 尾部斜杠后追加 path。
   static String endpoint(CloudConfig c, String path) {

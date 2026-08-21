@@ -242,6 +242,25 @@ void main() {
     await db.close();
   });
 
+  test('超长证据被截断到上下文预算内（回归：超长 prompt 原生崩溃）', () async {
+    const cfg = CloudConfig(baseUrl: 'https://api.example.com/v1', apiKey: 'k');
+    String? captured;
+    final synth = RagSynthesizer(null, cloud: cfg,
+        chatOverride: (c, msgs) async {
+      captured = msgs.first['content'];
+      return '云端回答';
+    });
+    // 10 条 × 800 字 ≈ 8000+ 字符，远超 3000 字符预算。
+    final evidences = List.generate(10, (i) => '证据$i：${'医' * 800}');
+    final r = await synth.synthesize(question: '当归功效', evidences: evidences);
+
+    expect(r?.channel, 'cloud');
+    expect(captured, isNotNull);
+    expect(captured!.length, lessThanOrEqualTo(3000));
+    // 预算内应保留前几条高相关证据，而不是全部丢弃。
+    expect(captured, contains('证据0'));
+  });
+
   test('云端失败自动回退端侧', () async {
     final db = AppDatabase(NativeDatabase.memory());
     await db.into(db.rawChunks).insert(RawChunksCompanion.insert(

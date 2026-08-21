@@ -45,8 +45,9 @@ class LlmService {
     } catch (e) {
       debugPrint('[LLM] preload: ERROR $e, mark failed');
       _loadError = e.toString();
-      _runner?.dispose();
+      final r = _runner;
       _runner = null;
+      await r?.dispose();
       _failed = true;
       return false;
     }
@@ -68,15 +69,17 @@ class LlmService {
     } catch (e) {
       debugPrint('[LLM] generate: ERROR $e, mark failed');
       _loadError = e.toString();
-      _runner?.dispose();
+      final r = _runner;
       _runner = null;
+      await r?.dispose();
       _failed = true;
       return null;
     }
   }
 
   Future<void> dispose() async {
-    _runner?.dispose();
+    final r = _runner;
     _runner = null;
+    await r?.dispose();
   }
 }

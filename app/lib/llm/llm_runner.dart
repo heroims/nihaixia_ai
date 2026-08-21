@@ -20,6 +20,7 @@ class LlmRunner {
   SendPort? _port;
   Completer<SendPort> _boot = Completer<SendPort>();
   Completer<void>? _loadDone;
+  Completer<void>? _disposeAck;
   String? _loadError;
   final Map<int, _Pending> _pending = {};
   bool _loaded = false;
@@ -45,9 +46,10 @@ class LlmRunner {
       try {
         _port = await _boot.future.timeout(const Duration(seconds: 10));
         print('[LLM] isolate booted');
-      } on TimeoutException {
+      }       on TimeoutException {
         // 启动超时：清空本次启动状态并换新 completer，令下次 ensureLoaded
-        // 走全新 isolate，避免挂在永不完成的 _boot 上。
+        // 走全新 isolate，避免挂在永不完成的 _boot 上。此时日志桥尚未安装
+        // （延迟到首次 load 才注册），强杀无悬垂回调风险。
         print('[LLM] isolate boot TIMEOUT, resetting');
         _isolate?.kill(priority: Isolate.immediate);
         _control?.close();
@@ -111,15 +113,40 @@ class LlmRunner {
     }
   }
 
-  void dispose() {
+  /// 优雅释放：等 runner isolate 复位全局日志回调并释放原生上下文后再杀。
+  ///
+  /// 绝不能在收到 ack 前强杀：llama_log_set 注册的 FFI 回调是进程级全局
+  /// 状态，isolate 一死回调即悬垂，原生侧（含 ggml 计算线程）再打任何
+  /// 日志就会跳进死 isolate 的跳板 → SIGSEGV 写空地址（iOS 模拟器实测）。
+  Future<void> dispose() async {
     if (_disposed) return;
     _disposed = true;
-    _port?.send({'cmd': 'dispose'});
+    final port = _port;
+    final isolate = _isolate;
+    if (port == null || isolate == null) {
+      // isolate 从未启动（或已清理）：无任何全局回调，直接收端口即可。
+      _control?.close();
+      _control = null;
+      _loaded = false;
+      return;
+    }
+    final ack = _disposeAck = Completer<void>();
+    port.send({'cmd': 'dispose'});
+    try {
+      // 超时须大于最慢的模型加载（Android 模拟器实测 ~16s）：isolate 单
+      // 事件循环，'dispose' 要等 'load' 处理完才会被处理，过早超时会把
+      // 本可优雅收尾的 isolate 孤儿化，白占一份模型内存。
+      await ack.future.timeout(const Duration(seconds: 30));
+      // 收尾完成：回调已复位、上下文已释放，此刻强杀安全。
+      isolate.kill(priority: Isolate.immediate);
+      print('[LLM] runner disposed gracefully');
+    } on TimeoutException {
+      // 收尾超时（如模型仍在加载）：不杀 isolate——杀掉必留悬垂回调。
+      // 孤儿化：isolate 存活则回调始终有效，安全；资源随进程退出回收。
+      print('[LLM] runner dispose TIMEOUT, orphaning isolate (no kill)');
+    }
+    _disposeAck = null;
     _control?.close();
-    // 注意：Isolate.immediate 强杀可能抢在 host 处理 'dispose' 之前，导致
-    // llama_cpp_dart 的原生资源（LLM 上下文）未被回收。这是 Teardown 阶段的
-    // 已知 native 泄漏，App 退出即进程回收，可接受，故保持现状。
-    _isolate?.kill(priority: Isolate.immediate);
     _port = null;
     _isolate = null;
     _control = null;
@@ -159,6 +186,9 @@ class LlmRunner {
           p.completer.completeError(StateError(msg['message'] as String));
         }
         break;
+      case 'disposed':
+        _disposeAck?.complete();
+        break;
     }
   }
 }
@@ -170,7 +200,6 @@ class _Pending {
 }
 
 void _isolateMain(SendPort mainPort) {
-  _bridgeLlamaLogs();
   final port = ReceivePort();
   mainPort.send(port.sendPort);
   final host = _IsolateHost(port, mainPort);
@@ -182,8 +211,8 @@ typedef _LlamaLogNative = ffi.Void Function(
 
 /// 把 llama.cpp/ggml 的原生日志桥接到 Dart print（→ logcat）。
 ///
-/// 必须在 runner isolate 内注册：Pointer.fromFunction 创建的回调只能被
-/// 创建它的 isolate 调用，跨 isolate 调用会触发 Dart 运行时 abort。
+/// 必须在 runner isolate 内、首次 load 前调用：Pointer.fromFunction 创建的
+/// 回调只能被创建它的 isolate 调用，跨 isolate 调用会触发 Dart 运行时 abort。
 /// 模型加载失败时 llama.cpp 会把原因打到日志，没有这个桥接在 Android 上
 /// 完全看不到（stderr 不进 logcat）。
 void _bridgeLlamaLogs() {
@@ -215,6 +244,8 @@ class _IsolateHost {
   Llama? llama;
   bool stopRequested = false;
   int activeId = -1;
+  bool logBridged = false;
+  bool disposing = false;
 
   _IsolateHost(this.port, this.mainPort);
 
@@ -222,12 +253,22 @@ class _IsolateHost {
     if (msg is! Map) return;
     switch (msg['cmd']) {
       case 'load':
+        // 日志桥延迟到首次 load 才安装：boot 阶段被强杀（启动超时）时
+        // 尚无任何全局回调，kill 天然安全。
+        if (!logBridged) {
+          _bridgeLlamaLogs();
+          logBridged = true;
+        }
         try {
           final nCtx = msg['nCtx'] as int;
           final temp = (msg['temp'] as num).toDouble();
           final ctx = ContextParams()
             ..context = nCtx
-            ..batch = nCtx;
+            ..batch = nCtx
+            // ggml 自旋线程池在模拟器 vCPU 调度下高线程数易屏障死锁
+            // （实测 8 线程首 token 后永久阻塞），压到 4 稳定。
+            ..threads = 4
+            ..threadsBatch = 4;
           final sampler = SamplingParams()
             ..temp = temp
             ..topK = 40
@@ -272,11 +313,29 @@ class _IsolateHost {
         if (msg['id'] == activeId) stopRequested = true;
         break;
       case 'dispose':
-        llama?.dispose();
-        llama = null;
-        port.close();
+        disposing = true;
+        // 生成中不能立刻释放：_generate 正在推进同一 Llama 指针，此处
+        // free 会 use-after-free。挂起标记，生成结束的 finally 里补收尾。
+        if (!gate.busy) _teardown();
         break;
     }
+  }
+
+  /// 复位全局日志回调 → 释放原生上下文 → 回 ack → 关端口。
+  /// llama.cpp 对 null 回调回退到默认 stderr 实现（llama-impl.cpp:30），
+  /// 复位后本 isolate 不再持有任何被原生侧引用的指针，宿主可安全 kill。
+  void _teardown() {
+    try {
+      Llama.lib.llama_log_set(
+          ffi.Pointer.fromAddress(0), ffi.Pointer.fromAddress(0));
+      llama?.dispose();
+      llama = null;
+      print('[LLM:iso] teardown done');
+    } catch (e) {
+      print('[LLM:iso] teardown error: $e');
+    }
+    mainPort.send({'type': 'disposed'});
+    port.close();
   }
 
   Future<void> _generate(Llama llama, int id, String prompt) async {
@@ -286,11 +345,19 @@ class _IsolateHost {
       print('[LLM:iso] generate $id: start');
       final sw = Stopwatch()..start();
       var tokens = 0;
+      var lastReport = Stopwatch()..start();
       while (!stopRequested) {
         final (token, done) = llama.getNext();
         if (token.isNotEmpty) {
           tokens++;
           mainPort.send({'type': 'token', 'id': id, 'text': token});
+        }
+        // 进度心跳：区分「生成慢」与「原生 decode 死锁」（后者连 dispose
+        // 消息都无法处理，是 iOS 模拟器闪退链路的前置条件）。
+        if (lastReport.elapsedMilliseconds >= 10000) {
+          print('[LLM:iso] generate $id: progress tokens=$tokens '
+              '(${(tokens / (lastReport.elapsedMilliseconds / 1000)).toStringAsFixed(1)} tok/s)');
+          lastReport.reset();
         }
         if (done) break;
         await Future<void>.delayed(Duration.zero);
@@ -306,6 +373,8 @@ class _IsolateHost {
       gate.release();
       stopRequested = false;
       activeId = -1;
+      // dispose 在生成期间到达：现在指针才空闲，补做安全收尾。
+      if (disposing) _teardown();
     }
   }
 }

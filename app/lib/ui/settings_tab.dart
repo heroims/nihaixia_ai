@@ -107,9 +107,30 @@ class _SettingsTabState extends State<SettingsTab> {
         },
       ),
       const Divider(),
-      const Text('云端增强（默认关闭）', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-      const SizedBox(height: 8),
-      const Text('配置 OpenAI 兼容 API 后可解锁：拍照看舌象、Live 对话。'),
+      // 云端配置区：是否使用云端完全由上方推理模式决定（唯一真相源），
+      // 此处只负责填写/保存连接配置，不再有独立启用开关。
+      ListenableBuilder(
+        listenable: InferenceSettings.instance,
+        builder: (context, _) {
+          final cloudActive = InferenceSettings.instance.mode ==
+              InferenceMode.cloudFirst;
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('云端连接（${cloudActive ? "当前模式使用云端" : "当前模式不使用云端"}）',
+                  style: const TextStyle(
+                      fontWeight: FontWeight.bold, fontSize: 16)),
+              const SizedBox(height: 8),
+              Text(
+                cloudActive
+                    ? '「云端优先」模式：问答优先走云端，失败自动落回端侧/检索。填好下方配置即可生效。'
+                    : '当前为「${InferenceSettings.instance.mode.label}」模式，问答不走云端；配置保留，切回「云端优先」后自动生效。配置齐全还可解锁拍照看舌象、Live 对话。',
+                style: const TextStyle(fontSize: 12, color: Colors.grey),
+              ),
+            ],
+          );
+        },
+      ),
       const SizedBox(height: 16),
       TextField(controller: _url, decoration: const InputDecoration(labelText: 'Base URL', hintText: 'https://api.example.com/v1')),
       const SizedBox(height: 8),
@@ -118,13 +139,6 @@ class _SettingsTabState extends State<SettingsTab> {
       TextField(controller: _model, decoration: const InputDecoration(labelText: '模型名', hintText: cloudDefaultModel)),
       const SizedBox(height: 8),
       FilledButton(onPressed: _save, child: const Text('保存')),
-      SwitchListTile(
-        contentPadding: EdgeInsets.zero,
-        title: const Text('启用云端增强'),
-        subtitle: Text(_cfg.isEnabled ? '已启用（问答/拍照将优先走云端）' : '已关闭（仅使用端侧模型）'),
-        value: _cfg.isEnabled,
-        onChanged: (v) => _toggleEnabled(v),
-      ),
       const SizedBox(height: 8),
       const Text('API Key 加密存储于本机（iOS Keychain / Android Keystore）',
           style: TextStyle(fontSize: 12, color: Colors.grey)),
@@ -143,21 +157,7 @@ class _SettingsTabState extends State<SettingsTab> {
         InferenceMode.cloudFirst => '优先云端模型，失败自动落回端侧/检索。',
       };
 
-  /// 开关只切换启用状态，不清空已填的 URL/Key/模型名。
-  void _toggleEnabled(bool v) {
-    final model = _model.text.trim();
-    final next = CloudConfig(
-      baseUrl: _url.text.trim(),
-      apiKey: _key.text.trim(),
-      defaultModel: model.isEmpty ? cloudDefaultModel : model,
-      enabled: v,
-    );
-    setState(() => _cfg = next);
-    unawaited(CloudConfigStore.save(next));
-    ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(v ? '云端增强已启用' : '云端增强已关闭')));
-  }
-
+  /// 保存表单：只写连接配置，不触碰任何启用语义（是否走云端由推理模式决定）。
   void _save() {
     final error = validateCloudUrl(_url.text);
     if (error != null) {
@@ -170,8 +170,7 @@ class _SettingsTabState extends State<SettingsTab> {
       baseUrl: _url.text.trim(),
       apiKey: _key.text.trim(),
       defaultModel: model.isEmpty ? cloudDefaultModel : model,
-      // 保留当前开关状态：保存表单不应隐式改变启用开关。
-      enabled: _cfg.enabled,
+      enabled: _cfg.enabled, // 遗留字段原样保留，不再驱动任何行为
     );
     setState(() => _cfg = next);
     unawaited(CloudConfigStore.save(next));
