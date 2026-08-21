@@ -5,11 +5,26 @@ import 'package:nihaixia_app/cloud/cloud_config.dart';
 import 'prompt_templates.dart';
 import 'llm_service.dart';
 
+/// 合成结果元数据：回答文本 + 实际使用的通道 + 备注（如云端失败原因）。
+class SynthResult {
+  /// 回答正文（已剥离思考块）。
+  final String text;
+
+  /// 实际通道：'cloud' | 'local'。
+  final String channel;
+
+  /// 补充说明：云端失败回落端侧时携带失败原因；正常时为 null。
+  final String? note;
+
+  const SynthResult(this.text, this.channel, {this.note});
+}
+
 /// RAG 合成器：把检索证据交给 LLM 归纳成回答。
 ///
 /// 生成通道优先级：云端（OpenAI 兼容 chat）→ 端侧 llama.cpp。
 /// 任一通道失败自动落到下一通道；全部失败返回 null，
-/// QaService 据此降级为检索原文。
+/// QaService 据此降级为检索原文。通道选择与失败原因经 [SynthResult.note]
+/// 上传，UI 可标注「本回答来自云端/端侧」。
 class RagSynthesizer {
   final LlmService? llm;
   final CloudConfig? cloud;
@@ -32,7 +47,7 @@ class RagSynthesizer {
   bool get enabled =>
       (cloud?.isEnabled ?? false) || (llm?.isAvailable ?? false);
 
-  Future<String?> synthesize({
+  Future<SynthResult?> synthesize({
     required String question,
     required List<String> evidences,
   }) async {
@@ -46,7 +61,8 @@ class RagSynthesizer {
     }
     final prompt = PromptTemplates.rag(question: question, evidences: evidences);
 
-    // 云端优先：快且质量高；失败不阻断，落回端侧。
+    // 云端优先：快且质量高；失败不阻断，落回端侧（原因记入 note 供 UI 展示）。
+    String? cloudError;
     if (cfg != null && cfg.isEnabled) {
       try {
         debugPrint('[RAG] using cloud (${cfg.defaultModel})');
@@ -57,10 +73,12 @@ class RagSynthesizer {
         final answer = stripThink(out);
         if (answer.isNotEmpty) {
           debugPrint('[RAG] synthesize: done via cloud, output=${_preview(answer)}');
-          return answer;
+          return SynthResult(answer, 'cloud');
         }
-        debugPrint('[RAG] cloud output empty after strip, fallback to local');
+        cloudError = '云端返回空内容';
+        debugPrint('[RAG] $cloudError after strip, fallback to local');
       } catch (e) {
+        cloudError = e.toString();
         debugPrint('[RAG] cloud failed, fallback to local: $e');
       }
     }
@@ -82,7 +100,7 @@ class RagSynthesizer {
       return null;
     }
     debugPrint('[RAG] synthesize: done, output=${_preview(answer)}');
-    return answer;
+    return SynthResult(answer, 'local', note: cloudError == null ? null : '$cloudError，已用端侧模型回答');
   }
 
   static String _preview(String s) {

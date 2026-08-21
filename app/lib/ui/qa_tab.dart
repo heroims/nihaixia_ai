@@ -6,6 +6,7 @@ import 'package:nihaixia_app/cloud/cloud_config.dart';
 import 'package:nihaixia_app/core/database.dart';
 import 'package:nihaixia_app/core/models.dart';
 import 'package:nihaixia_app/llm/inference_settings.dart';
+import 'package:nihaixia_app/llm/local_model_state.dart';
 import 'package:nihaixia_app/llm/llm_service.dart';
 import 'package:nihaixia_app/llm/model_resolver.dart';
 import 'package:nihaixia_app/llm/rag_synthesizer.dart';
@@ -29,10 +30,14 @@ class _QaTabState extends State<QaTab> {
   String _answer = '';
   bool _hasAnswer = false;
   List<SearchHit> _sources = const [];
+  String _channel = 'retrieval';
+  String? _channelNote;
   bool _loading = false;
   // 请求令牌：并发防抖。每次提交自增，早先 in-flight 请求完成后若令牌已过期
   // 则丢弃结果，保证「后提交者胜出」且 _loading 不被旧请求提前清掉（T18-1）。
   int _req = 0;
+  // 接线代数：模式快速切换时作废旧的异步接线/预热流程，防止交错泄漏。
+  int _wiring = 0;
 
   @override
   void initState() {
@@ -67,13 +72,17 @@ class _QaTabState extends State<QaTab> {
   Future<void> _initLlm() async {
     final db = widget.db;
     if (db == null) return;
-    final mode = await InferenceSettings.instance.load().then((_) => InferenceSettings.instance.mode);
-    debugPrint('[QaTab] inference mode=$mode');
+    final gen = ++_wiring;
 
     // 先释放旧通道（模式切换时可能持有上一个 LlmService）。
     final old = _llm;
     _llm = null;
     unawaited(old?.dispose());
+
+    await InferenceSettings.instance.load();
+    if (gen != _wiring) return;
+    final mode = InferenceSettings.instance.mode;
+    debugPrint('[QaTab] inference mode=$mode');
 
     LlmService? llm;
     var wireCloud = false;
@@ -88,13 +97,18 @@ class _QaTabState extends State<QaTab> {
         wireCloud = true;
         break;
     }
+    if (gen != _wiring) {
+      unawaited(llm?.dispose());
+      return;
+    }
     // 云端配置不在此处快照：合成器每次提问时实时读取，设置保存后立即生效。
     if (llm == null && (!wireCloud || !(await _cloudEnabled()))) {
+      if (gen != _wiring) return;
       setState(() => _service = QaService(db)); // 无任何通道 → 纯检索
       debugPrint('[QaTab] wired: retrieval-only');
       return;
     }
-    if (!mounted) {
+    if (!mounted || gen != _wiring) {
       unawaited(llm?.dispose());
       return;
     }
@@ -105,6 +119,22 @@ class _QaTabState extends State<QaTab> {
           synthesizer: RagSynthesizer(llm, cloudProvider: wireCloud ? _loadCloudConfig : null));
     });
     debugPrint('[QaTab] wired: mode=$mode local=${llm != null}, cloud=${wireCloud ? "per-call" : "off"}');
+    // 预热加载端侧模型并上报真实加载状态（设置页展示；首次提问不再等待加载）。
+    if (llm != null) unawaited(_preloadLocal(llm, gen));
+  }
+
+  Future<void> _preloadLocal(LlmService llm, int gen) async {
+    final state = LocalModelState.instance;
+    state.reportLoading();
+    final ok = await llm.preload();
+    if (gen != _wiring) return; // 已被更新的接线取代，不上报过期状态
+    if (ok) {
+      debugPrint('[QaTab] local model preloaded OK');
+      state.reportLoaded();
+    } else {
+      debugPrint('[QaTab] local model preload FAILED: ${llm.loadError}');
+      state.reportFailed(llm.loadError ?? '未知错误');
+    }
   }
 
   Future<LlmService?> _resolveLocal() async {
@@ -162,6 +192,8 @@ class _QaTabState extends State<QaTab> {
       _answer = r.answer;
       _hasAnswer = r.hasAnswer;
       _sources = r.sources;
+      _channel = r.channel;
+      _channelNote = r.channelNote;
     });
     if (_scrollController.hasClients) {
       _scrollController.jumpTo(0);
@@ -217,6 +249,7 @@ class _QaTabState extends State<QaTab> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         WarningCard(text: _hasAnswer ? _answer : null),
+        _buildChannelChip(),
         MarkdownBody(
           data: _answer,
           selectable: true,
@@ -225,6 +258,36 @@ class _QaTabState extends State<QaTab> {
         const SizedBox(height: 8),
         SourceList(sources: _sources),
       ],
+    );
+  }
+
+  /// 回答来源标注：让「云端优先是否真的走了云端」可见。
+  Widget _buildChannelChip() {
+    if (!_hasAnswer) return const SizedBox.shrink();
+    final (label, color) = switch (_channel) {
+      'cloud' => ('云端模型', Colors.indigo),
+      'local' => ('端侧模型', Colors.teal),
+      _ => ('知识库原文', Colors.grey),
+    };
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 4),
+      child: Row(children: [
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+          decoration: BoxDecoration(
+            color: color.withOpacity(0.12),
+            borderRadius: BorderRadius.circular(10),
+          ),
+          child: Text(label, style: TextStyle(fontSize: 11, color: color)),
+        ),
+        if (_channelNote != null) ...[
+          const SizedBox(width: 6),
+          Expanded(
+            child: Text(_channelNote!,
+                style: const TextStyle(fontSize: 11, color: Colors.orange)),
+          ),
+        ],
+      ]),
     );
   }
 }

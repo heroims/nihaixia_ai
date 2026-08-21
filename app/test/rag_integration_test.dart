@@ -1,4 +1,5 @@
-import 'package:drift/drift.dart';
+// hide matcher 同名 API：测试断言用 flutter_test 导出的 isNull/isNotNull。
+import 'package:drift/drift.dart' hide isNull, isNotNull;
 import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:nihaixia_app/cloud/cloud_config.dart';
@@ -236,6 +237,8 @@ void main() {
     expect(llm.callCount, 0);
     expect(r.hasAnswer, true);
     expect(r.answer, '云端回答'); // think 块已剥离
+    expect(r.channel, 'cloud');
+    expect(r.channelNote, isNull);
     await db.close();
   });
 
@@ -257,6 +260,9 @@ void main() {
     expect(llm.callCount, 1);
     expect(r.hasAnswer, true);
     expect(r.answer, '端侧回答');
+    expect(r.channel, 'local');
+    expect(r.channelNote, isNotNull); // 携带云端失败原因，UI 可见
+    expect(r.channelNote, contains('网络错误'));
     await db.close();
   });
 
@@ -276,6 +282,23 @@ void main() {
 
     expect(r.hasAnswer, true);
     expect(r.answer, '纯云端回答');
+    expect(r.channel, 'cloud');
+    await db.close();
+  });
+
+  test('端侧直答（无云端）channel 标注为 local 且无 note', () async {
+    final db = AppDatabase(NativeDatabase.memory());
+    await db.into(db.rawChunks).insert(RawChunksCompanion.insert(
+          source: const Value('黄帝内经'),
+          heading: const Value('上古天真论'),
+          content: '上古之人，其知道者，法于阴阳，和于术数。',
+        ));
+
+    final llm = _FakeLlmService('端侧回答');
+    final r = await QaService(db, synthesizer: RagSynthesizer(llm)).answer('什么是法于阴阳');
+
+    expect(r.channel, 'local');
+    expect(r.channelNote, isNull);
     await db.close();
   });
 

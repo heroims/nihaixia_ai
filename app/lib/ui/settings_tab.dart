@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import '../cloud/cloud_config.dart';
 import '../llm/inference_settings.dart';
+import '../llm/local_model_state.dart';
 import '../llm/model_resolver.dart';
 
 String? validateCloudUrl(String? url) {
@@ -31,7 +32,6 @@ class _SettingsTabState extends State<SettingsTab> {
   final _model = TextEditingController();
   CloudConfig _cfg = const CloudConfig();
   InferenceMode _mode = InferenceMode.cloudFirst;
-  bool _localModelReady = false;
 
   @override
   void initState() {
@@ -42,13 +42,12 @@ class _SettingsTabState extends State<SettingsTab> {
   Future<void> _loadSaved() async {
     try {
       await InferenceSettings.instance.load();
+      await LocalModelState.instance.refreshInstalled();
       final cfg = await CloudConfigStore.load();
-      final ready = await LlmModelResolver.isInstalled();
       if (!mounted) return;
       setState(() {
         _cfg = cfg;
         _mode = InferenceSettings.instance.mode;
-        _localModelReady = ready;
         _url.text = cfg.baseUrl;
         _key.text = cfg.apiKey;
         _model.text = cfg.defaultModel;
@@ -83,15 +82,29 @@ class _SettingsTabState extends State<SettingsTab> {
       const SizedBox(height: 4),
       Text(_modeHint(_mode), style: const TextStyle(fontSize: 12, color: Colors.grey)),
       const SizedBox(height: 8),
-      ListTile(
-        contentPadding: EdgeInsets.zero,
-        leading: const Icon(Icons.memory),
-        title: Text('端侧模型：${LlmModelResolver.modelDisplayName}'),
-        subtitle: Text(_localModelReady ? '已就绪（离线可用）' : '未安装'),
-        trailing: Icon(
-          _localModelReady ? Icons.check_circle : Icons.error_outline,
-          color: _localModelReady ? Colors.green : Colors.orange,
-        ),
+      // 端侧模型真实加载状态：由问答页预热驱动，此处监听展示。
+      ListenableBuilder(
+        listenable: LocalModelState.instance,
+        builder: (context, _) {
+          final s = LocalModelState.instance;
+          final (status, icon, color) = switch (s.phase) {
+            LocalModelPhase.checking => ('检查中…', Icons.help_outline, Colors.grey),
+            LocalModelPhase.notInstalled => ('未安装', Icons.error_outline, Colors.orange),
+            LocalModelPhase.installedNotLoaded => ('已安装，未加载', Icons.schedule, Colors.grey),
+            LocalModelPhase.loading => ('加载中…', Icons.downloading, Colors.blue),
+            LocalModelPhase.loaded => ('已加载，可离线问答', Icons.check_circle, Colors.green),
+            LocalModelPhase.failed => ('加载失败', Icons.error, Colors.red),
+          };
+          return ListTile(
+            contentPadding: EdgeInsets.zero,
+            leading: const Icon(Icons.memory),
+            title: Text('端侧模型：${LlmModelResolver.modelDisplayName}'),
+            subtitle: Text(s.phase == LocalModelPhase.failed && s.detail != null
+                ? '$status：${s.detail}'
+                : status),
+            trailing: Icon(icon, color: color),
+          );
+        },
       ),
       const Divider(),
       const Text('云端增强（默认关闭）', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),

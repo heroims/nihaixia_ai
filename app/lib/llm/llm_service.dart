@@ -12,14 +12,45 @@ class LlmService {
   final int ctxSize;
   LlmRunner? _runner;
   bool _failed = false;
+  bool _loaded = false;
+  String? _loadError;
 
   LlmService({required this.modelPath, this.ctxSize = 4096});
 
   /// 一次性降级语义：加载失败后保持不可用，不再每次重试。
   bool get isAvailable => !_failed && File(modelPath).existsSync();
 
+  /// 模型是否已真正加载进 llama.cpp（区别于文件存在性检查）。
+  bool get isLoaded => _loaded;
+
+  /// 最近一次加载失败的原因（未失败为 null）。
+  String? get loadError => _loadError;
+
   /// 同步标记不可用（测试/预热用）。
   void markUnavailable() => _failed = true;
+
+  /// 显式预加载：把模型载入 llama.cpp 并返回是否成功。
+  /// 失败原因记录在 [loadError]，并按一次性降级语义标记不可用。
+  Future<bool> preload() async {
+    if (!isAvailable) {
+      _loadError = _failed ? (_loadError ?? '此前加载失败') : '模型文件不存在';
+      return false;
+    }
+    try {
+      _runner ??= LlmRunner();
+      await _runner!.ensureLoaded(modelPath: modelPath, nCtx: ctxSize);
+      _loaded = true;
+      _loadError = null;
+      return true;
+    } catch (e) {
+      debugPrint('[LLM] preload: ERROR $e, mark failed');
+      _loadError = e.toString();
+      _runner?.dispose();
+      _runner = null;
+      _failed = true;
+      return false;
+    }
+  }
 
   Future<String?> generate(String prompt) async {
     if (!isAvailable) {
@@ -29,12 +60,14 @@ class LlmService {
     try {
       _runner ??= LlmRunner();
       await _runner!.ensureLoaded(modelPath: modelPath, nCtx: ctxSize);
+      _loaded = true;
       debugPrint('[LLM] generate: calling runner, promptLen=${prompt.length}');
       final out = await _runner!.generate(prompt);
       debugPrint('[LLM] generate: runner returned outLen=${out.length}');
       return out;
     } catch (e) {
       debugPrint('[LLM] generate: ERROR $e, mark failed');
+      _loadError = e.toString();
       _runner?.dispose();
       _runner = null;
       _failed = true;

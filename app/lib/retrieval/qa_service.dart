@@ -12,10 +12,19 @@ class QaResult {
   final bool hasAnswer;
   final String answer;
   final List<SearchHit> sources;
+
+  /// 回答来源：'cloud'（云端模型）| 'local'（端侧模型）| 'retrieval'（知识库原文）。
+  final String channel;
+
+  /// 来源补充说明，如「云端失败：<原因>，已用端侧模型回答」。
+  final String? channelNote;
+
   const QaResult({
     required this.hasAnswer,
     this.answer = '',
     this.sources = const [],
+    this.channel = 'retrieval',
+    this.channelNote,
   });
 }
 
@@ -64,12 +73,13 @@ class QaService {
     }
   }
 
-  /// RAG 合成尝试：synthesizer 可用且产出非空 → 返回合成答案；否则返回 null
-  /// 由调用方走各自的原文降级。合成器异常与空输出同等处理（降级链完整）。
+  /// RAG 合成尝试：synthesizer 可用且产出非空 → 返回合成答案（含来源标注）；
+  /// 否则返回 null 由调用方走各自的原文降级。合成器异常与空输出同等处理
+  /// （降级链完整）。
   Future<QaResult?> _synthesize(String query, List<SearchHit> sources) async {
     final synth = synthesizer;
     if (synth == null || !synth.enabled) return null;
-    String? out;
+    SynthResult? out;
     try {
       out = await synth.synthesize(
         question: query,
@@ -81,8 +91,14 @@ class QaService {
     } catch (e) {
       debugPrint('[QaService] synthesizer failed, degrade to body: $e');
     }
-    if (out == null || out.trim().isEmpty) return null;
-    return QaResult(hasAnswer: true, answer: out, sources: sources.take(5).toList());
+    if (out == null || out.text.trim().isEmpty) return null;
+    return QaResult(
+      hasAnswer: true,
+      answer: out.text,
+      sources: sources.take(5).toList(),
+      channel: out.channel,
+      channelNote: out.note,
+    );
   }
 
   /// 结构化优先路径：先用整句 query 匹配各表，匹配不到再退到
