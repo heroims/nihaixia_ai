@@ -16,3 +16,7 @@ tools/data/nihaixia/
 tools/out/
 # JetBrains IDE
 .idea/
+
+# Superpowers scratch workspaces and visual brainstorming output
+.worktrees/
+.superpowers/
