@@ -1,81 +1,159 @@
-# 倪海厦中医离线问答
+# 倪海厦中医问答
 
-离线优先的倪海厦经方中医问答 App。知识库来自 [nihaixia](https://github.com/jangviktor-web/nihaixia)（MulanPSL-2.0）。
-详见 `docs/superpowers/specs/`。
+![经方印章](app/assets/branding/icon.svg)
 
-## 项目结构
-- `tools/` 构建期 Python 工具：markdown → SQLite
-- `app/` Flutter 应用
+一个离线优先的 Flutter 中医学习工具：把可追溯的倪海厦经方知识库、结构化检索、端侧 GGUF 模型和可选云端增强组合在同一条问答链路里。项目重点不是替代医生，而是展示一个可解释、可降级、可测试的 AI 应用工程实现。
 
-## 分层能力
-- **纯检索**：任意机型可用。基于内置 SQLite 的「and-only OR LIKE 子串匹配 + Dart 侧部分命中过滤与评分」检索（不走 FTS5，无 jieba 分词），答案可溯源到原文。
-- **端侧 LLM RAG（已启用）**：`app/lib/llm/` 的 `LlmService` / `LlmRunner` / `RagSynthesizer` 已实现并通过单元测试，并已接入问答流程——`QaTab` 启动时经 `LlmModelResolver` 自动检测模型文件（优先应用文档目录，其次 assets 打包拷贝）→ 有模型文件时问答自动走 RAG 合成（子串与结构化路径共用），无模型文件自动降级纯检索。模型已注册进 `pubspec.yaml` assets 随包分发，首次启动自动复制到应用文档目录。
-- **云端增强**：设置页填 API Key 后解锁拍照 / Live 增强功能（默认关闭）。
+> 本 App 仅用于中医学习与研究，不构成医疗建议。如有健康问题，请咨询执业医师。
 
-## 构建流程
+## 你可以用它做什么
+
+- **自由问答**：从内置 SQLite 知识库检索经方、药材、条文和医案，并展示来源。
+- **引导式诊断**：通过四步症状问卷给出经方辨证方向；信息不足时明确提示，不强行输出结论。
+- **端侧 RAG**：配置 Qwen3 GGUF 后，在设备本地用 llama.cpp 归纳检索证据，断网也能工作。
+- **云端增强**：在设置中填写 OpenAI 兼容 Base URL、API Key 和模型名后，可启用云端优先问答、拍照分析和 Live 对话；云端失败会自动回到端侧或原文检索。
+- **可追溯回答**：回答与 `source · heading` 来源列表分离展示，便于复核原文。
+
+## 为什么适合用来讲 AI 工程
+
+这个仓库可以作为一个面试中的端到端 AI 应用案例，重点在“系统如何在不确定条件下保持可用”，而不是只展示一次模型调用：
+
+| 能力 | 输入 | 处理 | 输出/降级 |
+|---|---|---|---|
+| 意图路由 | 用户自然语言 | `IntentRouter` 区分诊断、药材/方剂和通用问题，并做同义词归一 | 结构化优先；无法识别时走通用检索 |
+| 轻量检索 | 查询词、SQLite 知识库 | `Searcher` 使用 `LIKE` 子串召回，Dart 侧做部分命中和排序 | 命中原文 + 来源；无命中提示资料不足 |
+| 结构化检索 | 药材/方剂/条文关键词 | `StructuredQueries` 访问 `herbs`、`formulas`、`tiao_wen` 表，并兼容古名/现代名 | 结构化证据；为空时回到子串检索 |
+| RAG 合成 | 查询 + 前 8 条证据 | `RagSynthesizer` 控制 prompt 预算，按云端 → 端侧顺序生成 | 空输出、异常或无模型时回退知识库原文 |
+| 模型解析 | GGUF 资源/应用文档目录 | `LlmModelResolver` 首次启动复制资源，`LlmService` 通过 llama.cpp 加载 | 加载失败不阻塞 App，设置页显示真实状态 |
+| 云端增强 | 安全存储的 API Key 和 Base URL | OpenAI 兼容 chat、拍照分析、Live 通道 | 云端失败记录原因并落回端侧/检索 |
+
+默认模式是“云端优先”：没有云端配置时不会偷偷联网，端侧模型可用则走端侧，否则直接返回检索原文。设置页也支持切换为“端侧模型”或“纯检索”。
+
+## 架构与问答数据流
+
+```mermaid
+flowchart LR
+    UI[自由问答 / 诊断 / 设置] --> QA[QaService]
+    QA --> ROUTER[IntentRouter]
+    ROUTER -->|药材/方剂| STRUCT[StructuredQueries]
+    ROUTER -->|通用或结构化无命中| SEARCH[Searcher]
+    STRUCT --> EVIDENCE[SearchHit 证据]
+    SEARCH --> EVIDENCE
+    EVIDENCE --> RAG[RagSynthesizer]
+    RAG -->|云端优先| CLOUD[OpenAI 兼容 API]
+    RAG -->|端侧| LOCAL[llama.cpp + GGUF]
+    RAG -->|通道不可用/输出为空/异常| RAW[知识库原文降级]
+    CLOUD --> RESULT[回答 + channel + 来源]
+    LOCAL --> RESULT
+    RAW --> RESULT
+```
+
+核心代码按职责分层：
+
+```text
+app/lib/
+├── core/       Drift 数据库、模型和资源加载
+├── retrieval/  意图路由、同义词、结构化查询、检索和答案组装
+├── llm/        GGUF 模型解析、llama.cpp 服务、RAG prompt 和合成
+├── cloud/      OpenAI 兼容客户端、拍照分析和 Live 对话
+├── rules/      四步辨证规则引擎
+└── ui/         问答、诊断、设置和来源/免责声明组件
+tools/
+├── parsers/    Markdown → 结构化记录的解析器
+└── build_kb.py 生成 app/assets/kb/kb.sqlite3
+```
+
+## 快速开始
+
+### 1. 准备 Python 工具链和知识库
 
 ```bash
-# 1. 工具链（Python 3）
 cd tools
 python3 -m venv .venv
 .venv/bin/pip install -r requirements.txt
-
-# 2. 拉取 nihaixia 知识库源码
-git clone --depth 1 https://github.com/jangviktor-web/nihaixia.git tools/data/nihaixia
-
-# 3. 构建 SQLite 知识库（输出 tools/out/kb.sqlite3）
+git clone --depth 1 https://github.com/jangviktor-web/nihaixia.git data/nihaixia
 .venv/bin/python build_kb.py --repo data/nihaixia --out out
+cp out/kb.sqlite3 ../app/assets/kb/kb.sqlite3
+```
 
-# 4. 拷入 App 资源
-cp tools/out/kb.sqlite3 app/assets/kb/kb.sqlite3
+知识库原始仓库使用 MulanPSL-2.0；`tools/data/` 和 `tools/out/` 被 `.gitignore` 排除，避免把源资料和构建产物提交进来。
 
-# 5. 下载端侧模型（可选，见下节）
-#    目标文件名：app/assets/models/qwen3-1.7b-instruct-q4_k_m.gguf
-#    注意：模型经「文件系统路径」加载（LlmService 检查 File(modelPath).existsSync()）。
-#    pubspec 已注册 assets/models/*.gguf，首次启动由 LlmModelResolver 自动复制到
-#    应用文档目录；真机/模拟器首次启动会拷贝 1.1GB 模型，需耐心等待。
+### 2. 准备端侧模型
 
-# 6. 运行 App
+纯检索逻辑不依赖模型，但当前 `pubspec.yaml` 将模型路径注册为 Flutter asset，因此要执行 `flutter test` 或构建 App，需先放置文件：
+
+| 项 | 值 |
+|---|---|
+| 模型 | `Qwen3-1.7B-Q4_K_M.gguf` |
+| 来源 | [ModelScope：unsloth/Qwen3-1.7B-GGUF](https://www.modelscope.cn/models/unsloth/Qwen3-1.7B-GGUF) |
+| 目标路径 | `app/assets/models/qwen3-1.7b-instruct-q4_k_m.gguf` |
+| 体积 | 约 1.1GB |
+| 许可 | Apache-2.0（以模型仓库说明为准） |
+
+模型文件已被 `*.gguf` 忽略，不会入库。首次运行时 `LlmModelResolver` 会把打包资源复制到应用文档目录，之后由文件系统路径加载。
+
+### 3. 运行 Flutter App
+
+```bash
 cd app
 flutter pub get
 flutter run
 ```
 
-### 端侧模型下载
+没有可用模型时，运行时会降级到纯检索；如果要验证这个降级路径，可以在设置页选择“纯检索”。
 
-| 项 | 值 |
-|---|---|
-| 仓库 | ModelScope `unsloth/Qwen3-1.7B-GGUF`（Apache-2.0） |
-| 文件 | `Qwen3-1.7B-Q4_K_M.gguf`（约 1.1GB） |
-| 目标路径 | `app/assets/models/qwen3-1.7b-instruct-q4_k_m.gguf`（与代码中传入 `LlmRunner.ensureLoaded` 的 `modelPath` 一致，见 `test/llm_real_test.dart`） |
+## 品牌资源与平台启动页
 
-国内网络可从 [ModelScope unsloth/Qwen3-1.7B-GGUF](https://www.modelscope.cn/models/unsloth/Qwen3-1.7B-GGUF) 下载 `Qwen3-1.7B-Q4_K_M.gguf`，重命名后放入 `app/assets/models/`。模型文件已被 `.gitignore`（`*.gguf`）排除，不会入库。
+本项目使用“经方印章”视觉系统：朱砂红 `#9E3D32`、宣纸米色 `#F3EAD8`、墨色 `#3F2B25` 和旧金 `#C9A67E`。源文件和生成器位于 [`app/assets/branding/`](app/assets/branding/)：
 
-**打包注意**：`pubspec.yaml` 已注册 `assets/models/qwen3-1.7b-instruct-q4_k_m.gguf`。`LlmService` 按文件系统路径（`File(modelPath).existsSync()`）检查模型；首次启动 `LlmModelResolver` 会把打包的模型自动复制到应用文档目录。模型文件被 `.gitignore`（`*.gguf`）排除，不会入库。
+```bash
+brew install librsvg
+python3 app/assets/branding/generate_assets.py --root .
+```
 
-### real 测试
+生成器会更新 Android `mipmap-*`、Android 启动图、iOS `AppIcon.appiconset` 和 `LaunchImage.imageset`。资源接入说明见 [`app/assets/branding/README.md`](app/assets/branding/README.md)。
 
-`real` 用例需要模型文件已就位：
+## 测试与构建
 
 ```bash
 cd app
+flutter analyze
+flutter test
+flutter build apk --debug
+flutter build ios --no-codesign --simulator
+```
+
+`flutter test` 默认跳过需要真实模型的测试；模型就位后可显式运行：
+
+```bash
 flutter test --run-skipped test/llm_real_test.dart
 ```
 
-默认 `flutter test` 会跳过带 `real` tag 的用例（见 `app/dart_test.yaml`）。
+工具链单测需要先安装 `tools/requirements.txt`：
 
-### 已知限制
+```bash
+cd tools
+.venv/bin/python -m pytest
+```
 
-- **tiao_wen 结构化命中未排序（噪声）**：`小柴胡汤什么时候用` 等 herbFormula 意图查询命中 tiao_wen 表且无排序（噪声）。合成器可用时由 LLM 归纳缓解（取前 8 条证据），不可用时为原文 dump。
-- **llm_runner load 重试守卫缺失**：`LlmRunner.ensureLoaded` 的 load 等待（120s 超时）没有像 `_boot` 超时那样的 kill/reset 守卫——load 超时抛错后 isolate 可能残留。当前不可达（`LlmService.generate` 一次性 dispose + `_failed` 降级覆盖）；补上镜像 `_boot` 超时的 reset 守卫是剩余的真机收尾项（仅真机可复现）。
-- **Android native libllama vendoring（已解决）**：`llama_cpp_dart 0.0.7` 已 vendoring 到 `app/third_party/llama_cpp_dart/`，内含 llama.cpp **b5113** 源码与 C++ ABI shim（`src/llama_abi_shim.cpp`，不 include llama.h + rename 宏），产出 ABI 兼容的 `libllama.{dylib,so}`：
-  - 原生库经 CMake 手工构建后预置为 `app/third_party/llama_cpp_dart/android/src/main/jniLibs/{arm64-v8a,x86_64}/libllama.so`（无 OpenMP、仅依赖系统库，SONAME 正确），插件已移除 `externalNativeBuild`，`flutter build apk --release` 直接打包；
-  - macOS 调试用 `LLAMA_LIBRARY_PATH=.../libllama.dylib flutter test --run-skipped test/llm_real_test.dart`；
-  - 构建需 NDK + CMake；本机并行 ninja 会 OOM，用 `ninja -j2`。
-  - 注意：`app/android/gradle.properties` 已固定 `org.gradle.java.home` 为 JDK 17（Gradle/AGP 8.7 不支持 JDK 25），`gradle-wrapper.properties` 已升级 gradle 8.9 / AGP 8.7.3（aapt2 才能解析 android-35 资源）。
-- **iOS native libllama（已解决）**：iOS 的 `Llama.libraryPath` 为 null → 走 `DynamicLibrary.process()`，符号需静态链入 Runner。已交叉编译 `libllama_combined.a`（arm64 真机 + arm64/x86_64 模拟器，deployment target 13.0，无 Metal/OpenMP）并打包为 `app/ios/Runner/Frameworks/llama.xcframework`；`Runner.xcodeproj` 的 `OTHER_LDFLAGS[sdk=iphoneos*]` / `[sdk=iphonesimulator*]` 已按 SDK `-Wl,-force_load` 对应切片并 `-Wl,-exported_symbol,_llama_*` 保留 25 个全局导出符号（`DynamicLibrary.process()` 才能 dlsym），另链 `-framework Accelerate`（ggml-blas 的 vDSP）。`flutter build ios`（模拟器 + 真机，debug/release）已验证。
-- **模型打包（已解决）**：`pubspec.yaml` 已注册 `assets/models/qwen3-1.7b-instruct-q4_k_m.gguf`，`LlmModelResolver` 首次启动自动复制到应用文档目录后走文件系统路径加载。注意模型 1.1GB，打进 App 包后 ipa/apk 体积相应增大（App.framework/flutter_assets）。
+## 面试演示建议（约 5 分钟）
 
-## 免责声明
+1. **产品入口（30 秒）**：展示三页结构和免责声明，说明“学习/研究工具”边界。
+2. **检索证据（60 秒）**：问一个方剂或药材问题，展开来源列表，展示古名/现代名兼容和 SQLite 可追溯性。
+3. **RAG 路径（90 秒）**：在设置页切到端侧或云端优先，说明证据如何进入 prompt、通道如何标注。
+4. **故障降级（60 秒）**：关闭模型或模拟云端失败，展示回答回到检索原文而非崩溃。
+5. **工程验证（60 秒）**：展示 `RagSynthesizer`、`LlmModelResolver`、结构化查询测试，以及 Android/iOS 资源构建结果。
 
-本 App 仅用于中医学习与研究，不构成医疗建议。如有健康问题，请咨询执业医师。
+## 已知限制与取舍
+
+- 检索主路径刻意不依赖 FTS5 或 jieba，使用 SQLite `LIKE` + Dart 侧评分，部署简单但中文长查询的召回仍有限。
+- 部分 `tiao_wen` 结构化命中未排序；端侧/云端合成可缓解，纯检索模式下可能看到原文噪声。
+- 端侧模型约 1.1GB，首次复制和加载需要时间，设备内存也会影响体验。
+- `llama_cpp_dart` 的原生库已随 Android/iOS 工程预置；本地真机构建仍需要对应 Xcode、CocoaPods、JDK/NDK 环境。
+- 云端能力需要用户自行提供兼容 API 配置；API Key 仅存本机 Keychain/Keystore，不在仓库中保存。
+
+## 许可与免责声明
+
+知识库来源为 [nihaixia](https://github.com/jangviktor-web/nihaixia)，遵循其 MulanPSL-2.0 许可；模型遵循模型仓库的 Apache-2.0 说明。项目代码和数据使用方式请以各自目录中的许可/说明为准。
+
+本 App 仅用于中医学习与研究，不构成医疗建议，不替代医生诊断、处方或治疗。出现急症或持续不适时，请及时就医。

@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <rect width="1024" height="1024" rx="224" fill="#9E3D32"/>
+  <rect x="136" y="136" width="752" height="752" rx="72" fill="none" stroke="#F3EAD8" stroke-width="18"/>
+  <rect x="180" y="180" width="664" height="664" rx="48" fill="none" stroke="#C9A67E" stroke-width="7"/>
+  <path d="M238 224h124M238 224v124M786 224H662M786 224v124M238 800h124M238 800V676M786 800H662M786 800V676" fill="none" stroke="#F3EAD8" stroke-width="9" stroke-linecap="round"/>
+  <text x="512" y="492" text-anchor="middle" fill="#F3EAD8" font-family="STHeiti,Hiragino Sans GB,Arial Unicode MS,sans-serif" font-size="192" font-weight="600" letter-spacing="18">经</text>
+  <text x="512" y="716" text-anchor="middle" fill="#F3EAD8" font-family="STHeiti,Hiragino Sans GB,Arial Unicode MS,sans-serif" font-size="192" font-weight="600" letter-spacing="18">方</text>
+</svg>

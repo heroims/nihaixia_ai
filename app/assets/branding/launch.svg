@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <g transform="translate(232 120)">
+    <rect width="560" height="560" rx="126" fill="#9E3D32"/>
+    <rect x="74" y="74" width="412" height="412" rx="42" fill="none" stroke="#F3EAD8" stroke-width="13"/>
+    <rect x="98" y="98" width="364" height="364" rx="28" fill="none" stroke="#C9A67E" stroke-width="5"/>
+    <path d="M126 130h72M126 130v72M434 130h-72M434 130v72M126 430h72M126 430v-72M434 430h-72M434 430v-72" fill="none" stroke="#F3EAD8" stroke-width="7" stroke-linecap="round"/>
+    <text x="280" y="285" text-anchor="middle" fill="#F3EAD8" font-family="STHeiti,Hiragino Sans GB,Arial Unicode MS,sans-serif" font-size="128" font-weight="600" letter-spacing="10">经</text>
+    <text x="280" y="435" text-anchor="middle" fill="#F3EAD8" font-family="STHeiti,Hiragino Sans GB,Arial Unicode MS,sans-serif" font-size="128" font-weight="600" letter-spacing="10">方</text>
+  </g>
+  <text x="512" y="790" text-anchor="middle" fill="#3F2B25" font-family="STHeiti,Hiragino Sans GB,Arial Unicode MS,sans-serif" font-size="38" letter-spacing="9">倪海厦 · 离线中医问答</text>
+  <path d="M378 834h268" stroke="#C9A67E" stroke-width="3" stroke-linecap="round"/>
+</svg>
