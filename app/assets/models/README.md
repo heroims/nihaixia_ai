@@ -7,7 +7,7 @@
 国内可改用 ModelScope `unsloth/Qwen3-1.7B-GGUF` 的 `Qwen3-1.7B-Q4_K_M.gguf`。
 
 注意：本目录**未注册为 Flutter asset**（`pubspec.yaml` 仅含 `assets/kb/kb.sqlite3`），
-`LlmService` 按文件系统路径检查模型。模型放入后真机验证请运行：
+`LlmService` 按文件系统路径检查模型。模型放入应用支持目录后真机验证请运行：
 
 ```bash
 flutter test --run-skipped test/llm_real_test.dart
