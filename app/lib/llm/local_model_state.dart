@@ -15,7 +15,7 @@ enum LocalModelPhase {
   /// 文件在但未加载进 llama.cpp。
   installedNotLoaded,
 
-  /// 加载中（1.1GB 模型约需数秒）。
+  /// 加载中（628MB 模型约需数秒）。
   loading,
 
   /// 已加载，可离线推理。

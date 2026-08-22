@@ -24,7 +24,7 @@ void main() {
     addTearDown(() => dir.delete(recursive: true));
 
     // assets/models 已注册进 pubspec.yaml；用 3 字节假模型模拟 asset 内容，
-    // 避免在单测里加载 1.1GB 真实 GGUF。
+    // 避免在单测里加载 628MB 真实 GGUF。
     const fakeBytes = [1, 2, 3];
     final fake = ByteData.view(Uint8List.fromList(fakeBytes).buffer);
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger

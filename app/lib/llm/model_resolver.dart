@@ -13,10 +13,10 @@ import 'package:path_provider/path_provider.dart';
 /// 3. 均不可用 → null（App 降级纯检索，LlmService.isAvailable 二次把关）。
 ///
 /// Android 特例：rootBundle.load 单块 TypedData 上限 2^30-1 字节（约 1GB），
-/// 1.1GB 模型必然抛 NewExternalTypedData 错误，故改走 MethodChannel 在原生侧
+/// 大体积模型可能触发 NewExternalTypedData 错误，故改走 MethodChannel 在原生侧
 /// 分块流式复制（内存占用恒定）。其余平台维持 rootBundle 路径。
 ///
-/// 先查本地文件再复制：避免每次启动都做 1.1GB 的重复拷贝
+/// 先查本地文件再复制：避免每次启动都做数百 MB 的重复拷贝
 /// （assets 存在且文件已在本地时，本地即权威副本）。
 class LlmModelResolver {
   static const modelFileName = 'Qwen3.5-0.8B-Q6_K.gguf';

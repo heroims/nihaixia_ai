@@ -1,6 +1,6 @@
 // llama_abi_rename.h — ABI compatibility layer for llama_cpp_dart 0.0.7
 //
-// The vendored llama.cpp (b5113) exports the "classic" llama.cpp symbols with
+// The vendored llama.cpp (upstream snapshot b21e4de) exports the llama.cpp symbols with
 // signatures that differ from what the llama_cpp_dart 0.0.7 ffigen binding
 // expects (the binding targets a pre-2024 llama.cpp). The ABI shim in
 // ../llama_abi_shim.cpp re-exports the old binding surface and translates
@@ -43,6 +43,9 @@
 #define llama_init_from_model            llama_modern_init_from_model
 #define llama_kv_cache_clear             llama_modern_kv_cache_clear
 #define llama_kv_cache_seq_rm            llama_modern_kv_cache_seq_rm
+#define llama_get_memory                 llama_modern_get_memory
+#define llama_memory_clear               llama_modern_memory_clear
+#define llama_memory_seq_rm              llama_modern_memory_seq_rm
 #define llama_model_load_from_file       llama_modern_model_load_from_file
 #define llama_load_model_from_file       llama_modern_load_model_from_file
 #define llama_model_default_params       llama_modern_model_default_params

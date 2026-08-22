@@ -35,7 +35,7 @@ class MainActivity : FlutterActivity() {
 
     /// 把 APK 内的 Flutter 资产流式复制到应用私有目录。
     ///
-    /// 大文件（1.1GB 模型）不能走 rootBundle.load：Dart 单块 TypedData 上限
+    /// 大文件模型不能走 rootBundle.load：Dart 单块 TypedData 上限
     /// 2^30-1 字节，超限直接抛错。这里在原生侧分块拷贝，内存占用恒定 256KB。
     private fun copyAssetToFile(assetPath: String, destPath: String) {
         val full = "flutter_assets/$assetPath"

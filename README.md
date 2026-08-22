@@ -154,9 +154,41 @@ cd tools
 
 - 检索主路径刻意不依赖 FTS5 或 jieba，使用 SQLite `LIKE` + Dart 侧评分，部署简单但中文长查询的召回仍有限。
 - 部分 `tiao_wen` 结构化命中未排序；端侧/云端合成可缓解，纯检索模式下可能看到原文噪声。
-- 端侧模型约 1.1GB，首次复制和加载需要时间，设备内存也会影响体验。
+- 端侧模型约 628MB（Qwen3.5-0.8B-Q6_K），首次复制和加载需要时间，设备内存也会影响体验。
 - `llama_cpp_dart` 的原生库已随 Android/iOS 工程预置；本地真机构建仍需要对应 Xcode、CocoaPods、JDK/NDK 环境。
 - 云端能力需要用户自行提供兼容 API 配置；API Key 仅存本机 Keychain/Keystore，不在仓库中保存。
+
+## Qwen3.5 原生推理层升级
+
+`Qwen3.5-0.8B-Q6_K.gguf` 的 GGUF 架构标识是 `qwen35`，旧版 llama.cpp 只认识 `qwen3`，因此会在模型加载阶段报 `unknown model architecture`。本项目已将 `app/third_party/llama_cpp_dart/src/llama.cpp` 升级到包含 Qwen3.5/Qwen3.5-MoE 图实现的上游快照 `b21e4de`，并保留 `llama_abi_shim` 兼容现有 Dart FFI。
+
+升级要点：
+
+- `llama-arch`、GGUF 元数据和 Qwen3.5/线性注意力算子一并升级，不能只添加一个架构枚举。
+- ABI shim 将旧的 `llama_kv_cache_clear` 映射到新版本的 memory API，旧 Dart 接口无需改动。
+- Android 已预编译 `arm64-v8a` 和 `x86_64` 的 `libllama.so`；iOS `xcframework` 同时更新真机和模拟器静态库。
+
+若需要重新生成原生库，使用 Android NDK 和 CMake（路径按本机环境调整）：
+
+```bash
+cmake -S app/third_party/llama_cpp_dart/src \
+  -B /tmp/llama-android-arm64 \
+  -DCMAKE_TOOLCHAIN_FILE="$ANDROID_NDK/build/cmake/android.toolchain.cmake" \
+  -DANDROID_ABI=arm64-v8a -DANDROID_PLATFORM=android-23 \
+  -DCMAKE_BUILD_TYPE=Release -DGGML_OPENMP=OFF \
+  -DLLAMA_BUILD_TESTS=OFF -DLLAMA_BUILD_EXAMPLES=OFF \
+  -DLLAMA_BUILD_SERVER=OFF -DLLAMA_BUILD_TOOLS=OFF \
+  -DLLAMA_BUILD_COMMON=OFF
+cmake --build /tmp/llama-android-arm64 --target llama_abi_shim -j2
+```
+
+Android 产物应复制到 `app/third_party/llama_cpp_dart/android/src/main/jniLibs/<abi>/libllama.so`。iOS 使用同一 CMake 工程，设置 `-DLLAMA_ABI_SHIM_STATIC=ON`，分别构建 `iphoneos/arm64` 与 `iphonesimulator/arm64;x86_64`，再将 shim、llama、ggml 静态库合并为 xcframework 中的 `libllama_combined.a`。构建完成后可用以下命令确认 ABI 和架构：
+
+```bash
+nm -D app/third_party/llama_cpp_dart/android/src/main/jniLibs/arm64-v8a/libllama.so \
+  | grep -E 'llama_(backend_init|modern_model_load_from_file)'
+lipo -info app/ios/Runner/Frameworks/llama.xcframework/ios-arm64_x86_64-simulator/libllama_sim_universal.a
+```
 
 ## 许可与免责声明
 

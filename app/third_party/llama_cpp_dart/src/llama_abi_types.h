@@ -86,8 +86,8 @@ struct llama_context_params {
 };
 
 // ---------------------------------------------------------------------------
-// MODERN ABI (vendored llama.cpp b5113; struct name preserved by the
-// rename header, layouts verified against include/llama.h)
+// MODERN ABI (upstream llama.cpp snapshot b21e4de; struct name preserved by
+// the rename header, layouts verified against include/llama.h)
 // ---------------------------------------------------------------------------
 
 struct shim_llama_model_params {
@@ -95,15 +95,18 @@ struct shim_llama_model_params {
     void *  tensor_buft_overrides;
     int32_t n_gpu_layers;
     int32_t split_mode;
+    int32_t load_mode;
     int32_t main_gpu;
     const float * tensor_split;
     void (*progress_callback)(void);
     void * progress_callback_user_data;
     void * kv_overrides;
     bool vocab_only;
-    bool use_mmap;
-    bool use_mlock;
     bool check_tensors;
+    bool use_extra_bufts;
+    bool no_host;
+    bool no_alloc;
+    bool load_mtp;
 };
 
 struct shim_llama_context_params {
@@ -111,11 +114,16 @@ struct shim_llama_context_params {
     uint32_t n_batch;
     uint32_t n_ubatch;
     uint32_t n_seq_max;
+    uint32_t n_rs_seq;
+    uint32_t n_outputs_max;
+    uint32_t n_outputs_max_per_seq;
     int32_t  n_threads;
     int32_t  n_threads_batch;
+    int32_t  ctx_type;
     int32_t  rope_scaling_type;
     int32_t  pooling_type;
     int32_t  attention_type;
+    int32_t  flash_attn_type;
     float    rope_freq_base;
     float    rope_freq_scale;
     float    yarn_ext_factor;
@@ -128,13 +136,17 @@ struct shim_llama_context_params {
     void * cb_eval_user_data;
     int32_t type_k;
     int32_t type_v;
-    bool logits_all;
-    bool embeddings;
-    bool offload_kqv;
-    bool flash_attn;
-    bool no_perf;
     void (*abort_callback)(void);
     void * abort_callback_data;
+    bool embeddings;
+    bool offload_kqv;
+    bool no_perf;
+    bool op_offload;
+    bool swa_full;
+    bool kv_unified;
+    void * samplers;
+    size_t n_samplers;
+    struct llama_context * ctx_other;
 };
 
 struct shim_llama_batch {
@@ -142,9 +154,9 @@ struct shim_llama_batch {
     llama_token *      token;
     float *            embd;
     llama_pos *        pos;
-    int32_t *          n_seq_id;
+    int32_t *           n_seq_id;
     llama_seq_id **    seq_id;
-    int8_t *           logits;
+    int8_t *            logits;
 };
 
 // ---------------------------------------------------------------------------
@@ -158,22 +170,23 @@ static_assert(sizeof(struct llama_model_params)     == 56, "llama_model_params l
 static_assert(sizeof(struct llama_context_params)   == 88, "llama_context_params layout mismatch (binding)");
 
 static_assert(sizeof(struct shim_llama_model_params)   == 72, "shim_llama_model_params layout mismatch (llama.h)");
-static_assert(sizeof(struct shim_llama_context_params) == 120, "shim_llama_context_params layout mismatch (llama.h)");
+static_assert(sizeof(struct shim_llama_context_params) == 160, "shim_llama_context_params layout mismatch (llama.h)");
 static_assert(sizeof(struct shim_llama_batch)          == 56, "shim_llama_batch layout mismatch (llama.h)");
 
 static_assert(offsetof(struct shim_llama_model_params, n_gpu_layers)  == 16, "model_params.n_gpu_layers offset");
 static_assert(offsetof(struct shim_llama_model_params, tensor_split)  == 32, "model_params.tensor_split offset");
 static_assert(offsetof(struct shim_llama_model_params, vocab_only)    == 64, "model_params.vocab_only offset");
+static_assert(offsetof(struct shim_llama_model_params, load_mode)     == 24, "model_params.load_mode offset");
 
 static_assert(offsetof(struct shim_llama_context_params, n_ctx)             == 0,  "ctx_params.n_ctx offset");
-static_assert(offsetof(struct shim_llama_context_params, n_threads)         == 16, "ctx_params.n_threads offset");
-static_assert(offsetof(struct shim_llama_context_params, rope_scaling_type) == 24, "ctx_params.rope_scaling_type offset");
-static_assert(offsetof(struct shim_llama_context_params, rope_freq_base)    == 36, "ctx_params.rope_freq_base offset");
-static_assert(offsetof(struct shim_llama_context_params, yarn_orig_ctx)     == 60, "ctx_params.yarn_orig_ctx offset");
-static_assert(offsetof(struct shim_llama_context_params, cb_eval)           == 72, "ctx_params.cb_eval offset");
-static_assert(offsetof(struct shim_llama_context_params, type_k)            == 88, "ctx_params.type_k offset");
-static_assert(offsetof(struct shim_llama_context_params, logits_all)        == 96, "ctx_params.logits_all offset");
-static_assert(offsetof(struct shim_llama_context_params, abort_callback)    == 104, "ctx_params.abort_callback offset");
+static_assert(offsetof(struct shim_llama_context_params, n_threads)         == 28, "ctx_params.n_threads offset");
+static_assert(offsetof(struct shim_llama_context_params, rope_scaling_type) == 40, "ctx_params.rope_scaling_type offset");
+static_assert(offsetof(struct shim_llama_context_params, rope_freq_base)    == 56, "ctx_params.rope_freq_base offset");
+static_assert(offsetof(struct shim_llama_context_params, yarn_orig_ctx)     == 80, "ctx_params.yarn_orig_ctx offset");
+static_assert(offsetof(struct shim_llama_context_params, cb_eval)           == 88, "ctx_params.cb_eval offset");
+static_assert(offsetof(struct shim_llama_context_params, type_k)            == 104, "ctx_params.type_k offset");
+static_assert(offsetof(struct shim_llama_context_params, embeddings)        == 128, "ctx_params.embeddings offset");
+static_assert(offsetof(struct shim_llama_context_params, abort_callback)    == 112, "ctx_params.abort_callback offset");
 
 static_assert(offsetof(struct shim_llama_batch, n_tokens) == 0,  "batch.n_tokens offset");
 static_assert(offsetof(struct shim_llama_batch, token)    == 8,  "batch.token offset");

@@ -2,7 +2,7 @@
 //
 // The ffigen binding in lib/src/llama_cpp.dart targets a pre-2024 llama.cpp:
 // struct layouts and function signatures differ from the vendored llama.cpp
-// (b5113). This translation unit re-exports the old binding surface and
+// (upstream snapshot b21e4de). This translation unit re-exports the old binding surface and
 // translates between the old and modern ABIs. It deliberately does NOT include
 // llama.h: structs are defined locally (see llama_abi_types.h) and the modern
 // llama.cpp symbols are renamed to llama_modern_* by llama_abi_rename.h, so the
@@ -70,7 +70,8 @@ const struct llama_vocab * llama_modern_model_get_vocab(const struct llama_model
 int32_t  llama_modern_tokenize(const struct llama_vocab *, const char *, int32_t, llama_token *, int32_t, bool, bool);
 int32_t  llama_modern_token_to_piece(const struct llama_vocab *, llama_token, char *, int32_t, int32_t, bool);
 int32_t  llama_modern_decode(struct llama_context *, struct shim_llama_batch);
-void     llama_modern_kv_cache_clear(struct llama_context *);
+void *   llama_modern_get_memory(const struct llama_context *);
+void     llama_modern_memory_clear(void *, bool);
 struct shim_llama_batch llama_modern_batch_init(int32_t, int32_t, int32_t);
 void     llama_modern_batch_free(struct shim_llama_batch);
 
@@ -148,9 +149,15 @@ struct llama_model * llama_load_model_from_file(const char * path_model, struct 
     m.progress_callback_user_data = params.progress_callback_user_data;
     m.kv_overrides               = params.kv_overrides;
     m.vocab_only                 = params.vocab_only;
-    m.use_mmap                   = params.use_mmap;
-    m.use_mlock                  = params.use_mlock;
+    // Translate the legacy mmap/mlock flags to the modern load_mode enum.
+    m.load_mode                  = params.use_mmap
+        ? (params.use_mlock ? 3 : 1)
+        : (params.use_mlock ? 2 : 0);
     m.check_tensors              = false;
+    m.use_extra_bufts            = false;
+    m.no_host                    = false;
+    m.no_alloc                   = false;
+    m.load_mtp                   = false;
     return llama_modern_model_load_from_file(path_model, m);
 }
 
@@ -181,10 +188,12 @@ struct llama_context * llama_new_context_with_model(struct llama_model * model, 
     c.cb_eval_user_data   = nullptr;
     c.type_k              = params.type_k;
     c.type_v              = params.type_v;
-    c.logits_all          = params.logits_all;
+    // The modern API replaces logits_all with an explicit output budget.
+    c.n_outputs_max       = params.logits_all ? params.n_batch : 0;
+    c.n_outputs_max_per_seq = params.logits_all ? params.n_batch : 0;
     c.embeddings          = params.embedding;
     c.offload_kqv         = params.offload_kqv;
-    c.flash_attn          = false;
+    c.flash_attn_type     = 0; // LLAMA_FLASH_ATTN_TYPE_DISABLED
     c.no_perf             = false;
     c.abort_callback      = nullptr;
     c.abort_callback_data = nullptr;
@@ -256,7 +265,7 @@ int32_t llama_tokenize(const struct llama_model * model, const char * text, int3
 int32_t llama_token_to_piece(const struct llama_model * model, llama_token token,
                              char * buf, int32_t length) {
     // The old binding's 4-arg llama_token_to_piece rendered every token
-    // unconditionally. b5113 hides CONTROL/UNKNOWN tokens unless special=true,
+    // unconditionally. Modern llama.cpp hides CONTROL/UNKNOWN tokens unless special=true,
     // so pass special=true to preserve the classic behavior.
     return llama_modern_token_to_piece(llama_modern_model_get_vocab(model), token, buf,
                                        length, 0, true);
@@ -287,7 +296,12 @@ int32_t llama_decode(struct llama_context * ctx, struct llama_batch batch) {
 }
 
 void llama_kv_cache_clear(struct llama_context * ctx) {
-    llama_modern_kv_cache_clear(ctx);
+    // New llama.cpp exposes the KV store through the generic memory API.
+    // Clearing both metadata and buffers preserves the old binding behavior.
+    void * memory = llama_modern_get_memory(ctx);
+    if (memory != nullptr) {
+        llama_modern_memory_clear(memory, true);
+    }
 }
 
 // Stub: the binding calls this unconditionally at startup but the vendored
