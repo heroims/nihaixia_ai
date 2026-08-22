@@ -19,7 +19,7 @@ import 'package:path_provider/path_provider.dart';
 /// 先查本地文件再复制：避免每次启动都做 1.1GB 的重复拷贝
 /// （assets 存在且文件已在本地时，本地即权威副本）。
 class LlmModelResolver {
-  static const modelFileName = 'qwen3-1.7b-instruct-q4_k_m.gguf';
+  static const modelFileName = 'Qwen3.5-0.8B-Q6_K.gguf';
   static const assetPath = 'assets/models/$modelFileName';
 
   /// 设置页展示用的模型名（不含扩展名）。

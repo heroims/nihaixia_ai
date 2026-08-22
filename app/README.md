@@ -54,7 +54,7 @@ Android 启动窗口由 `res/drawable*/launch_background.xml` 提供宣纸米色
 
 - `flutter test` 默认包含检索、结构化查询、RAG 降级、模型解析和 widget 测试；带 `real` tag 的真实模型用例默认跳过。
 - 真实模型测试：`flutter test --run-skipped test/llm_real_test.dart`。
-- 没有可用模型时，测试/构建前仍需准备 `assets/models/qwen3-1.7b-instruct-q4_k_m.gguf` 资产路径；该文件不应提交。
+- 没有可用模型时，测试/构建前仍需准备 `assets/models/Qwen3.5-0.8B-Q6_K.gguf` 资产路径；该文件不应提交。
 - Android/iOS 原生库和构建环境说明见根 README 的“已知限制与取舍”。
 
 诊断相关回归测试覆盖：四步状态机、最后一步多选、返回编辑/重新开始、无症状不请求、完整提示词与短检索词分离，以及规则基线的身体酸痛分支。

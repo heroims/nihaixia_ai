@@ -90,10 +90,10 @@ cp out/kb.sqlite3 ../app/assets/kb/kb.sqlite3
 
 | 项 | 值 |
 |---|---|
-| 模型 | `Qwen3-1.7B-Q4_K_M.gguf` |
-| 来源 | [ModelScope：unsloth/Qwen3-1.7B-GGUF](https://www.modelscope.cn/models/unsloth/Qwen3-1.7B-GGUF) |
-| 目标路径 | `app/assets/models/qwen3-1.7b-instruct-q4_k_m.gguf` |
-| 体积 | 约 1.1GB |
+| 模型 | `Qwen3.5-0.8B-Q6_K.gguf` |
+| 来源 | [ModelScope：Qwen3.5-0.8B-GGUF](https://www.modelscope.cn/models/lmstudio-community/Qwen3.5-0.8B-GGUF) |
+| 目标路径 | `app/assets/models/Qwen3.5-0.8B-Q6_K.gguf` |
+| 体积 | 约 628MB |
 | 许可 | Apache-2.0（以模型仓库说明为准） |
 
 模型文件已被 `*.gguf` 忽略，不会入库。首次运行时 `LlmModelResolver` 会把打包资源复制到应用文档目录，之后由文件系统路径加载。
