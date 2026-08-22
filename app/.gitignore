@@ -5,9 +5,11 @@
 *.swp
 .DS_Store
 .atom/
+.build/
 .buildlog/
 .history
 .svn/
+.swiftpm/
 migrate_working_dir/
 
 # IntelliJ related
@@ -41,6 +43,17 @@ app.*.map.json
 /android/app/debug
 /android/app/profile
 /android/app/release
+
+# Gradle 输出（rootProject.buildDir 指向 ../build，但 AGP9 仍会生成 android/build）
+/android/build/
+
+# Swift Package Manager 缓存（Flutter 3.47+ SPM 集成生成）
+**/xcshareddata/swiftpm/
+ios/Flutter/ephemeral/
+
+# llama.cpp 原生构建产物
+third_party/llama_cpp_dart/src/build-android-*/
+third_party/llama_cpp_dart/src/build-*/
 
 # 大文件，不入库
 *.gguf

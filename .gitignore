@@ -14,3 +14,5 @@ app/android/.gradle/
 *.gguf
 tools/data/nihaixia/
 tools/out/
+# JetBrains IDE
+.idea/
