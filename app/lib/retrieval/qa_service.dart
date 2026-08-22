@@ -68,9 +68,11 @@ class QaService {
         final text = hits.take(5).map((h) => h.text).join('\n\n');
         if (text.trim().isEmpty) {
           // 仅标题命中（正文为空）的 chunk：无实质答案，按 formatEmpty 语义返回。
-          return QaResult(hasAnswer: false, answer: AnswerAssembler.formatEmpty());
+          return QaResult(
+              hasAnswer: false, answer: AnswerAssembler.formatEmpty());
         }
-        return QaResult(hasAnswer: true, answer: text, sources: hits.take(5).toList());
+        return QaResult(
+            hasAnswer: true, answer: text, sources: hits.take(5).toList());
       }
       return QaResult(hasAnswer: false, answer: AnswerAssembler.formatEmpty());
     } catch (e) {
@@ -138,7 +140,9 @@ class QaService {
     final buf = StringBuffer();
     for (final h in herbs) {
       final desc = '${h.taste ?? ''} ${h.indications ?? ''}'.trim();
-      buf.writeln(desc.isEmpty ? _herbDisplayName(h.name) : '${_herbDisplayName(h.name)}：$desc');
+      buf.writeln(desc.isEmpty
+          ? _herbDisplayName(h.name)
+          : '${_herbDisplayName(h.name)}：$desc');
     }
     for (final f in formulas) {
       final name = f.name ?? f.title ?? '';

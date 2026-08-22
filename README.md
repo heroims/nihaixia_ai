@@ -9,7 +9,7 @@
 ## 你可以用它做什么
 
 - **自由问答**：从内置 SQLite 知识库检索经方、药材、条文和医案，并展示来源。
-- **引导式诊断**：通过四步症状问卷给出经方辨证方向；信息不足时明确提示，不强行输出结论。
+- **引导式诊断**：通过四步症状问卷整合寒热、汗出、疼痛、口渴和发热，提交后才调用统一的检索/RAG 推理链；信息不足时不发起请求。
 - **端侧 RAG**：配置 Qwen3 GGUF 后，在设备本地用 llama.cpp 归纳检索证据，断网也能工作。
 - **云端增强**：在设置中填写 OpenAI 兼容 Base URL、API Key 和模型名后，可启用云端优先问答、拍照分析和 Live 对话；云端失败会自动回到端侧或原文检索。
 - **可追溯回答**：回答与 `source · heading` 来源列表分离展示，便于复核原文。
@@ -20,6 +20,8 @@
 
 | 能力 | 输入 | 处理 | 输出/降级 |
 |---|---|---|---|
+| 共享推理会话 | 自由问答与诊断页面 | `InferenceSession` 统一管理 `QaService`、云端配置、端侧模型生命周期和模式切换 | 两个入口复用同一模型实例；切换失败仍保留检索 |
+| 诊断编排 | 四步症状输入 | `DiagnosisService` 生成完整分析提示词，同时生成稳定的短检索词；`DiagnosticEngine` 只作为可解释规则基线 | RAG/模型回答 + 规则线索 + 来源；无症状不请求 |
 | 意图路由 | 用户自然语言 | `IntentRouter` 区分诊断、药材/方剂和通用问题，并做同义词归一 | 结构化优先；无法识别时走通用检索 |
 | 轻量检索 | 查询词、SQLite 知识库 | `Searcher` 使用 `LIKE` 子串召回，Dart 侧做部分命中和排序 | 命中原文 + 来源；无命中提示资料不足 |
 | 结构化检索 | 药材/方剂/条文关键词 | `StructuredQueries` 访问 `herbs`、`formulas`、`tiao_wen` 表，并兼容古名/现代名 | 结构化证据；为空时回到子串检索 |
@@ -33,7 +35,11 @@
 
 ```mermaid
 flowchart LR
-    UI[自由问答 / 诊断 / 设置] --> QA[QaService]
+    UI[自由问答 / 诊断 / 设置] --> SESSION[InferenceSession]
+    SESSION --> QA[QaService]
+    DIAG[四步症状问卷] --> DS[DiagnosisService]
+    DS -->|完整分析提示词| QA
+    DS -->|短关键词| QA
     QA --> ROUTER[IntentRouter]
     ROUTER -->|药材/方剂| STRUCT[StructuredQueries]
     ROUTER -->|通用或结构化无命中| SEARCH[Searcher]
@@ -56,7 +62,7 @@ app/lib/
 ├── retrieval/  意图路由、同义词、结构化查询、检索和答案组装
 ├── llm/        GGUF 模型解析、llama.cpp 服务、RAG prompt 和合成
 ├── cloud/      OpenAI 兼容客户端、拍照分析和 Live 对话
-├── rules/      四步辨证规则引擎
+├── rules/      诊断编排服务与可解释规则基线
 └── ui/         问答、诊断、设置和来源/免责声明组件
 tools/
 ├── parsers/    Markdown → 结构化记录的解析器
