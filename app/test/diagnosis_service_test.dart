@@ -1,5 +1,4 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:nihaixia_app/core/models.dart';
 import 'package:nihaixia_app/retrieval/qa_service.dart';
 import 'package:nihaixia_app/rules/diagnosis_service.dart';
 import 'package:nihaixia_app/rules/diagnostic_engine.dart';
