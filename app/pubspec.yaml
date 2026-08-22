@@ -39,3 +39,4 @@ flutter:
   uses-material-design: true
   assets:
     - assets/kb/kb.sqlite3
+    - assets/models/qwen3-1.7b-instruct-q4_k_m.gguf

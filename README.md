@@ -86,7 +86,7 @@ cp out/kb.sqlite3 ../app/assets/kb/kb.sqlite3
 
 ### 2. 准备端侧模型
 
-纯检索逻辑不依赖模型，模型不是必需的 Flutter asset；因此没有下载 GGUF 也可以执行测试和构建纯检索版 App。需要端侧推理时，再手动准备：
+纯检索逻辑不依赖模型，但当前 `pubspec.yaml` 将模型路径注册为 Flutter asset，因此要执行 `flutter test` 或构建 App，需先放置文件：
 
 | 项 | 值 |
 |---|---|
@@ -96,7 +96,7 @@ cp out/kb.sqlite3 ../app/assets/kb/kb.sqlite3
 | 体积 | 约 1.1GB |
 | 许可 | Apache-2.0（以模型仓库说明为准） |
 
-模型文件已被 `*.gguf` 忽略，不会入库。将模型部署到应用支持目录后，`LlmModelResolver` 会按文件系统路径加载；未部署时自动降级为纯检索。这样可以避免把约 1.1GB 的模型强制塞进每次 Debug 构建。
+模型文件已被 `*.gguf` 忽略，不会入库。首次运行时 `LlmModelResolver` 会把打包资源复制到应用文档目录，之后由文件系统路径加载。
 
 ### 3. 运行 Flutter App
 

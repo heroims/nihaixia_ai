@@ -18,7 +18,7 @@ flutter build apk --debug
 flutter build ios --no-codesign --simulator
 ```
 
-`pubspec.yaml` 只注册知识库 asset；端侧 GGUF 模型约 1.1GB，作为可选文件手动部署，且被根目录 `*.gguf` 规则忽略。没有模型时仍可编译和运行纯检索模式，完整下载与部署流程见根 README。
+`pubspec.yaml` 注册了知识库和端侧 GGUF 模型 asset。模型文件约 1.1GB，且被根目录 `*.gguf` 规则忽略；完整下载和首次复制流程见根 README。
 
 ## 推理模式
 
@@ -54,14 +54,14 @@ Android 启动窗口由 `res/drawable*/launch_background.xml` 提供宣纸米色
 
 - `flutter test` 默认包含检索、结构化查询、RAG 降级、模型解析和 widget 测试；带 `real` tag 的真实模型用例默认跳过。
 - 真实模型测试：`flutter test --run-skipped test/llm_real_test.dart`。
-- 没有可用模型时，测试和构建仍可运行；需要端侧推理时再把 GGUF 部署到应用支持目录，该文件不应提交。
+- 没有可用模型时，测试/构建前仍需准备 `assets/models/qwen3-1.7b-instruct-q4_k_m.gguf` 资产路径；该文件不应提交。
 - Android/iOS 原生库和构建环境说明见根 README 的“已知限制与取舍”。
 
 诊断相关回归测试覆盖：四步状态机、最后一步多选、返回编辑/重新开始、无症状不请求、完整提示词与短检索词分离，以及规则基线的身体酸痛分支。
 
 ## 常见排查
 
-1. **资源找不到**：确认 `assets/kb/kb.sqlite3` 存在并重新执行 `flutter pub get`；模型文件不属于必需 Flutter asset。
+1. **资源找不到**：确认 `assets/kb/kb.sqlite3` 和模型文件路径与 `pubspec.yaml` 一致，重新执行 `flutter pub get`。
 2. **端侧模型未加载**：到设置页查看“端侧模型”状态；首次启动需要等待复制/加载，失败时可先切到“纯检索”。
 3. **云端不生效**：确认模式为“云端优先”，Base URL 包含 `http://` 或 `https://`，API Key 和模型名已保存。
 4. **图标/启动页未更新**：重新运行品牌生成器后清理平台构建缓存，再执行对应的 `flutter build`。
