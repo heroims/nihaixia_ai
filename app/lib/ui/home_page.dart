@@ -1,5 +1,8 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:nihaixia_app/core/database.dart';
+import 'package:nihaixia_app/llm/inference_session.dart';
 import 'qa_tab.dart';
 import 'diagnosis_tab.dart';
 import 'settings_tab.dart';
@@ -13,14 +16,28 @@ class HomePage extends StatefulWidget {
 
 class _HomePageState extends State<HomePage> {
   int _index = 0;
+  late final InferenceSession _session;
+
+  @override
+  void initState() {
+    super.initState();
+    _session = InferenceSession(widget.database);
+    unawaited(_session.initialize());
+  }
+
+  @override
+  void dispose() {
+    unawaited(_session.disposeAsync());
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: const Text('倪海厦中医问答')),
       body: IndexedStack(index: _index, children: [
-        QaTab(db: widget.database),
-        const DiagnosisTab(),
+        QaTab(session: _session),
+        DiagnosisTab(session: _session),
         const SettingsTab(),
       ]),
       bottomNavigationBar: NavigationBar(

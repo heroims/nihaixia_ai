@@ -28,6 +28,8 @@ flutter build ios --no-codesign --simulator
 - **端侧模型**：使用 `LlmModelResolver` 找到模型后由 llama.cpp 本地归纳；模型不可用时保持纯检索。
 - **云端优先**：优先调用 OpenAI 兼容 API，失败落回端侧，再落回知识库原文。
 
+自由问答和引导式诊断通过 `InferenceSession` 共享同一个 `QaService` 与模型生命周期，避免两个页面重复加载 GGUF 或产生模式不一致。诊断页不会在最后一个选项被点击时自动提交，而是先把症状整合成两份输入：完整自然语言提示词用于 RAG/模型归纳，稳定的短关键词用于知识库召回。`DiagnosticEngine` 只提供可解释的规则基线，最终结果同时展示回答通道、检索来源和规则线索。
+
 API Key 通过 `flutter_secure_storage` 写入 iOS Keychain / Android Keystore。云端配置不会写进源码或测试快照。
 
 ## 品牌资源生成
@@ -54,6 +56,8 @@ Android 启动窗口由 `res/drawable*/launch_background.xml` 提供宣纸米色
 - 真实模型测试：`flutter test --run-skipped test/llm_real_test.dart`。
 - 没有可用模型时，测试/构建前仍需准备 `assets/models/qwen3-1.7b-instruct-q4_k_m.gguf` 资产路径；该文件不应提交。
 - Android/iOS 原生库和构建环境说明见根 README 的“已知限制与取舍”。
+
+诊断相关回归测试覆盖：四步状态机、最后一步多选、返回编辑/重新开始、无症状不请求、完整提示词与短检索词分离，以及规则基线的身体酸痛分支。
 
 ## 常见排查
 

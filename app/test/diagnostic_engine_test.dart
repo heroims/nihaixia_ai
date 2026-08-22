@@ -14,6 +14,16 @@ void main() {
       expect(r.suggestedFormula, contains('麻黄汤'));
     });
 
+    test('无汗恶寒身体酸痛也可作为太阳伤寒线索', () {
+      final r = DiagnosticEngine.evaluate(const SymptomInput(
+        sweat: SweatState.noSweat,
+        cold: ColdState.aversionToCold,
+        bodyAche: true,
+      ));
+      expect(r.status, DiagnosisStatus.matched);
+      expect(r.suggestedFormula, contains('麻黄汤'));
+    });
+
     test('有汗恶风 → 太阳中风', () {
       final r = DiagnosticEngine.evaluate(const SymptomInput(
         sweat: SweatState.hasSweat,
