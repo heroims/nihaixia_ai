@@ -29,6 +29,12 @@ dev_dependencies:
   drift_dev: ^2.16.0
   build_runner: ^2.4.8
 
+hooks:
+  user_defines:
+    sqlite3:
+      source: sqlite3
+      url_pattern: "https://ghfast.top/https://github.com/simolus3/sqlite3.dart/releases/download/$RELEASE_TAG/$FILENAME"
+
 flutter:
   uses-material-design: true
   assets:
