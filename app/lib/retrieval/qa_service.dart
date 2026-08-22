@@ -41,15 +41,21 @@ class QaService {
 
   QaService(this.db, {this.synthesizer});
 
-  Future<QaResult> answer(String query) async {
-    final intent = IntentRouter.classify(query);
+  Future<QaResult> answer(String query, {String? retrievalQuery}) async {
+    final searchQuery = retrievalQuery?.trim().isNotEmpty == true
+        ? retrievalQuery!.trim()
+        : query;
+    final intent = IntentRouter.classify(searchQuery);
     try {
       // herbFormula 意图：先结构化查 herbs/formulas/tiao_wen，无命中再子串兜底。
       if (intent == Intent.herbFormula) {
-        final structured = await _answerStructured(query);
+        final structured = await _answerStructured(
+          searchQuery,
+          synthesisQuery: query,
+        );
         if (structured != null) return structured;
       }
-      final hits = await Searcher.searchByQuery(db, query);
+      final hits = await Searcher.searchByQuery(db, searchQuery);
       if (hits.isNotEmpty) {
         // RAG 合成：子串与结构化路径共用 [_synthesize]。命中证据后若合成器
         // 可用且产出非空，用其产出自然语言回答；空/空白/异常输出一律走下方
@@ -113,7 +119,10 @@ class QaService {
   /// andTerms=柴胡，findHerbs 命中 茈胡 + findTiaoWen 命中 99 行且无排序
   /// （噪声）。synthesizer 可用时由 LLM 归纳缓解（[_synthesize] 取前 8 条
   /// 证据）；不可用时仍为原文 dump（已知限制，Task 22 云端 LLM 排序未接入）。
-  Future<QaResult?> _answerStructured(String query) async {
+  Future<QaResult?> _answerStructured(
+    String query, {
+    String? synthesisQuery,
+  }) async {
     final herbs = <Herb>[];
     final formulas = <Formula>[];
     final tiaoWen = <TiaoWenData>[];
@@ -158,7 +167,7 @@ class QaService {
     ];
 
     // 结构化命中后先尝试 RAG 合成；失败/不可用再走原文 dump 降级。
-    final synthesized = await _synthesize(query, sources);
+    final synthesized = await _synthesize(synthesisQuery ?? query, sources);
     if (synthesized != null) return synthesized;
 
     final text = buf.toString().trim();

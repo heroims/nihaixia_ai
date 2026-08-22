@@ -2,7 +2,24 @@ import 'package:drift/drift.dart';
 import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:nihaixia_app/core/database.dart';
+import 'package:nihaixia_app/llm/llm_service.dart';
+import 'package:nihaixia_app/llm/rag_synthesizer.dart';
 import 'package:nihaixia_app/retrieval/qa_service.dart';
+
+class _PromptCaptureLlm extends LlmService {
+  String? prompt;
+
+  _PromptCaptureLlm() : super(modelPath: '/nonexistent.gguf');
+
+  @override
+  bool get isAvailable => true;
+
+  @override
+  Future<String?> generate(String value) async {
+    prompt = value;
+    return '诊断合成结果';
+  }
+}
 
 void main() {
   test('方剂查询走结构化表', () async {
@@ -90,6 +107,28 @@ void main() {
     expect(r.sources, isNotEmpty);
     expect(r.answer, contains('茈胡（柴胡）'));
     expect(r.sources.first.source, '神农本草经');
+    await db.close();
+  });
+
+  test('诊断查询分离完整 prompt 与短检索词', () async {
+    final db = AppDatabase(NativeDatabase.memory());
+    await db.into(db.rawChunks).insert(RawChunksCompanion.insert(
+          source: const Value('伤寒论'),
+          heading: const Value('太阳病'),
+          content: '怕冷、无汗、头项强痛，属于太阳伤寒证候线索。',
+        ));
+    final llm = _PromptCaptureLlm();
+
+    final result = await QaService(db, synthesizer: RagSynthesizer(llm)).answer(
+      '请根据以下症状判断六经方向：怕冷、无汗、头项强痛。只基于资料回答。',
+      retrievalQuery: '怕冷 无汗 头项强痛',
+    );
+
+    expect(result.answer, '诊断合成结果');
+    expect(result.sources, isNotEmpty);
+    expect(llm.prompt, contains('请根据以下症状判断六经方向'));
+    expect(llm.prompt, contains('怕冷、无汗、头项强痛'));
+    expect(llm.prompt, isNot(contains('【问题】怕冷 无汗 头项强痛')));
     await db.close();
   });
 }
