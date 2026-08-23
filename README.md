@@ -1,6 +1,13 @@
 # 倪海厦中医问答
 
-![经方印章](app/assets/branding/icon.svg)
+<img src="app/assets/branding/icon.svg" alt="经方印章" width="96" />
+
+## 下载安装
+
+- **Android APK**：[app-release.apk](https://github.com/heroims/nihaixia_ai/releases/download/v0.1.0-beta/app-release.apk)
+- **iOS IPA**：[nihaixia_app.ipa](https://github.com/heroims/nihaixia_ai/releases/download/v0.1.0-beta/nihaixia_app.ipa)
+
+更多版本请见 [Releases 页面](https://github.com/heroims/nihaixia_ai/releases)。
 
 一个离线优先的 Flutter 中医学习工具：把可追溯的倪海厦经方知识库、结构化检索、端侧 GGUF 模型和可选云端增强组合在同一条问答链路里。项目重点不是替代医生，而是展示一个可解释、可降级、可测试的 AI 应用工程实现。
 
