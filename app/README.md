@@ -57,7 +57,7 @@ Android 启动窗口由 `res/drawable*/launch_background.xml` 提供宣纸米色
 - 没有可用模型时，测试/构建前仍需准备 `assets/models/Qwen3.5-0.8B-Q6_K.gguf` 资产路径；该文件不应提交。
 - Android/iOS 原生库和构建环境说明见根 README 的“已知限制与取舍”。
 
-原生层已升级到包含 `qwen35` 架构的 llama.cpp，并通过 ABI shim 保持现有 Dart FFI。若替换模型或升级 llama.cpp，必须同步重编 Android `libllama.so` 以及 iOS xcframework；只替换 GGUF 文件不会改变原生层支持的架构。
+原生层已升级到包含 `qwen35` 架构的 llama.cpp，并通过 ABI shim 保持现有 Dart FFI。若替换模型或升级 llama.cpp，必须同步重编 Android `libllama.so` 以及 iOS xcframework；只替换 GGUF 文件不会改变原生层支持的架构。旧 Dart ABI 没有 `n_ubatch` 字段，shim 会将物理批大小限制为 512，避免 iOS Metal 在 `n_batch=4096` 时创建超大计算图而崩溃。
 
 诊断相关回归测试覆盖：四步状态机、最后一步多选、返回编辑/重新开始、无症状不请求、完整提示词与短检索词分离，以及规则基线的身体酸痛分支。
 

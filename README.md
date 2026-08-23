@@ -158,6 +158,7 @@ cd tools
 
 - `llama-arch`、GGUF 元数据和 Qwen3.5/线性注意力算子一并升级，不能只添加一个架构枚举。
 - ABI shim 将旧的 `llama_kv_cache_clear` 映射到新版本的 memory API，旧 Dart 接口无需改动。
+- 旧 Dart ABI 没有单独的 `n_ubatch` 字段，shim 将物理批大小限制为 512；如果把 `n_batch=4096` 直接传给 `n_ubatch`，iOS Metal 可能在创建 context 时分配失败并触发原生崩溃。
 - Android 已预编译 `arm64-v8a` 和 `x86_64` 的 `libllama.so`；iOS `xcframework` 同时更新真机和模拟器静态库。
 
 若需要重新生成原生库，使用 Android NDK 和 CMake（路径按本机环境调整）：

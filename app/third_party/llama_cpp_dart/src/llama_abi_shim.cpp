@@ -169,7 +169,11 @@ struct llama_context * llama_new_context_with_model(struct llama_model * model, 
     struct shim_llama_context_params c = llama_modern_context_default_params();
     c.n_ctx               = params.n_ctx;
     c.n_batch             = params.n_batch;
-    c.n_ubatch            = params.n_batch;
+    // The legacy ABI only exposes n_batch. Keep the logical submission limit
+    // requested by Dart, but cap the physical batch used to reserve the ggml
+    // compute graph. Mapping both to a 4096-token batch can exceed Metal's
+    // per-buffer limit on iOS devices and causes a null buffer dereference.
+    c.n_ubatch            = std::min<uint32_t>(params.n_batch, 512u);
     c.n_seq_max           = 1;
     c.n_threads           = (int32_t) params.n_threads;
     c.n_threads_batch     = (int32_t) params.n_threads_batch;
