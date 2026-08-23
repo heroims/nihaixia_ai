@@ -4,8 +4,8 @@
 
 ## 下载安装
 
-- **Android APK**：[app-release.apk](https://github.com/heroims/nihaixia_ai/releases/download/v0.1.0-beta/app-release.apk)
-- **iOS IPA**：[nihaixia_app.ipa](https://github.com/heroims/nihaixia_ai/releases/download/v0.1.0-beta/nihaixia_app.ipa)
+- **Android APK(下载即用)**：[app-release.apk](https://github.com/heroims/nihaixia_ai/releases/download/v0.1.0-beta/app-release.apk)
+- **iOS IPA(需用三方导入安装证书)**：[nihaixia_app.ipa](https://github.com/heroims/nihaixia_ai/releases/download/v0.1.0-beta/nihaixia_app.ipa)
 
 更多版本请见 [Releases 页面](https://github.com/heroims/nihaixia_ai/releases)。
 
