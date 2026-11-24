@@ -34,13 +34,15 @@ class RagSynthesizer {
   final Future<CloudConfig?> Function()? _cloudProvider;
 
   /// 测试注入点：替换 [CloudClient.chat]；生产代码不传。
-  final Future<String> Function(CloudConfig, List<Map<String, String>>)? _chatOverride;
+  final Future<String> Function(CloudConfig, List<Map<String, String>>)?
+      _chatOverride;
 
   RagSynthesizer(
     this.llm, {
     this.cloud,
     Future<CloudConfig?> Function()? cloudProvider,
-    Future<String> Function(CloudConfig, List<Map<String, String>>)? chatOverride,
+    Future<String> Function(CloudConfig, List<Map<String, String>>)?
+        chatOverride,
   })  : _cloudProvider = cloudProvider,
         _chatOverride = chatOverride;
 
@@ -48,21 +50,31 @@ class RagSynthesizer {
   /// 模式在接线时决定（非云端优先模式根本不会传入 cloud/cloudProvider），
   /// 避免与遗留 enabled 开关形成两套矛盾的状态源。
   bool get enabled =>
-      (cloud?.isConfigured ?? false) || (llm?.isAvailable ?? false);
+      _cloudProvider != null ||
+      (cloud?.isConfigured ?? false) ||
+      (llm?.isAvailable ?? false);
 
   Future<SynthResult?> synthesize({
     required String question,
     required List<String> evidences,
   }) async {
-    debugPrint('[RAG] synthesize: start, questionLen=${question.length} evidences=${evidences.length}');
+    return generateInstruction(_buildPromptWithinBudget(question, evidences));
+  }
+
+  /// 执行问诊编排指令，复用云端优先与端侧降级。
+  Future<SynthResult?> generateInstruction(String instruction) async {
+    if (instruction.length > 16000) {
+      throw ArgumentError('问诊上下文超出预算，请开始新对话');
+    }
     final local = llm;
     // 云端配置每次提问时实时读取，设置页保存后立即生效。
     final cfg = await (_cloudProvider?.call() ?? Future.value(cloud));
-    if ((cfg?.isConfigured ?? false) == false && (local == null || !local.isAvailable)) {
+    if ((cfg?.isConfigured ?? false) == false &&
+        (local == null || !local.isAvailable)) {
       debugPrint('[RAG] synthesize: no channel available, return null');
       return null;
     }
-    final prompt = _buildPromptWithinBudget(question, evidences);
+    final prompt = instruction;
 
     // 云端优先：快且质量高；失败不阻断，落回端侧（原因记入 note 供 UI 展示）。
     // 能走到这里说明接线时已处于云端优先模式，此处只看配置是否齐全。
@@ -76,7 +88,8 @@ class RagSynthesizer {
         ]);
         final answer = stripThink(out);
         if (answer.isNotEmpty) {
-          debugPrint('[RAG] synthesize: done via cloud, output=${_preview(answer)}');
+          debugPrint(
+              '[RAG] synthesize: done via cloud, output=${_preview(answer)}');
           return SynthResult(answer, 'cloud');
         }
         cloudError = '云端返回空内容';
@@ -88,7 +101,9 @@ class RagSynthesizer {
     }
 
     // 端侧通道。
-    if (local == null || !local.isAvailable) {
+    if (local == null ||
+        !local.isAvailable ||
+        prompt.length > _maxPromptChars) {
       debugPrint('[RAG] no local llm available, return null (degrade)');
       return null;
     }
@@ -100,19 +115,13 @@ class RagSynthesizer {
     // 或生成被截断在思考块内（剥离后为空），QaService 据此走检索原文降级，
     // 不让空串冒充回答。
     if (answer.isEmpty) {
-      // 但如果是超长输出被截断（例如思考块只吐出一半），保留原始内容作为兜底，
-      // 让用户至少看到端侧模型在思考，而不是直接退回纯检索。
-      final raw = (out ?? '').trim();
-      if (raw.isNotEmpty) {
-        debugPrint('[RAG] synthesize: partial output retained, outLen=${raw.length}');
-        return SynthResult(raw, 'local',
-            note: '端侧模型响应较慢，已返回部分结果');
-      }
-      debugPrint('[RAG] synthesize: empty output after strip, return null (degrade)');
+      debugPrint(
+          '[RAG] synthesize: empty output after strip, return null (degrade)');
       return null;
     }
     debugPrint('[RAG] synthesize: done, output=${_preview(answer)}');
-    return SynthResult(answer, 'local', note: cloudError == null ? null : '$cloudError，已用端侧模型回答');
+    return SynthResult(answer, 'local',
+        note: cloudError == null ? null : '$cloudError，已用端侧模型回答');
   }
 
   static String _preview(String s) {

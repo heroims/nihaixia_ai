@@ -4,6 +4,7 @@ import 'package:nihaixia_app/core/database.dart';
 import 'package:nihaixia_app/core/models.dart';
 import 'package:nihaixia_app/llm/inference_session.dart';
 import 'package:nihaixia_app/retrieval/qa_service.dart';
+import 'package:nihaixia_app/retrieval/consultation_session.dart';
 import 'widgets/disclaimer_banner.dart';
 import 'widgets/source_list.dart';
 import 'widgets/warning_card.dart';
@@ -19,6 +20,7 @@ class QaTab extends StatefulWidget {
 class _QaTabState extends State<QaTab> {
   final _controller = TextEditingController();
   final _scrollController = ScrollController();
+  ConsultationSession? _conversation;
   String _answer = '';
   bool _hasAnswer = false;
   List<SearchHit> _sources = const [];
@@ -65,6 +67,34 @@ class _QaTabState extends State<QaTab> {
     }
     final id = ++_req;
     setState(() => _loading = true);
+    final synth = service.synthesizer;
+    if (synth != null && synth.enabled) {
+      _conversation ??= ConsultationSession(
+        synthesize: (prompt) async {
+          final current = widget.session?.service?.synthesizer;
+          return (current ?? synth).generateInstruction(prompt);
+        },
+        retrieve: (query) => QaService(service.db).answer(query),
+        answerKnowledge: (query) =>
+            (widget.session?.service ?? service).answer(query),
+      );
+      await _conversation!.send(q);
+      if (!mounted || id != _req) return;
+      setState(() {
+        _loading = false;
+        _controller.clear();
+        _channelNote = null;
+      });
+      _scrollToLatest();
+      return;
+    }
+    if (_conversation != null) {
+      setState(() {
+        _loading = false;
+        _channelNote = '模型当前不可用，请恢复连接后继续，或开始新对话进行知识查询。';
+      });
+      return;
+    }
     final r = await service.answer(q);
     if (!mounted || id != _req) return;
     setState(() {
@@ -80,10 +110,50 @@ class _QaTabState extends State<QaTab> {
     }
   }
 
+  void _scrollToLatest() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && _scrollController.hasClients) {
+        _scrollController.jumpTo(_scrollController.position.maxScrollExtent);
+      }
+    });
+  }
+
+  Future<void> _confirm() async {
+    if (_loading) return;
+    final id = ++_req;
+    setState(() => _loading = true);
+    await _conversation!.send('信息无误，请形成参考结果', confirmed: true);
+    if (mounted && id == _req) {
+      setState(() => _loading = false);
+      _scrollToLatest();
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Column(children: [
       const DisclaimerBanner(),
+      if (_conversation != null)
+        Row(children: [
+          const SizedBox(width: 12),
+          Text(switch (_conversation!.stage) {
+            ConsultationStage.collecting => '了解症状',
+            ConsultationStage.confirming => '请核对信息',
+            ConsultationStage.complete => '本轮已结束',
+          }),
+          const Spacer(),
+          TextButton(
+              onPressed: _loading
+                  ? null
+                  : () => setState(() {
+                        _conversation = null;
+                        _answer = '';
+                        _channelNote = null;
+                        _controller.clear();
+                        ++_req;
+                      }),
+              child: const Text('新对话')),
+        ]),
       Expanded(
         child: SingleChildScrollView(
           controller: _scrollController,
@@ -100,7 +170,7 @@ class _QaTabState extends State<QaTab> {
               textInputAction: TextInputAction.search,
               onSubmitted: _loading ? null : (_) => _ask(),
               decoration: const InputDecoration(
-                hintText: '问倪海厦经方…',
+                hintText: '描述症状，或询问经方知识…',
                 border: OutlineInputBorder(),
               ),
             ),
@@ -116,6 +186,35 @@ class _QaTabState extends State<QaTab> {
   }
 
   Widget _buildBody() {
+    if (_conversation != null) {
+      return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        for (final message in _conversation!.messages)
+          Card(
+              child: Padding(
+                  padding: const EdgeInsets.all(12),
+                  child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(message.user
+                            ? '你'
+                            : switch (message.channel) {
+                                'cloud' => '助手 · 云端模型',
+                                'local' => '助手 · 端侧模型',
+                                _ => '助手',
+                              }),
+                        const SizedBox(height: 6),
+                        if (!message.user) WarningCard(text: message.text),
+                        MarkdownBody(data: message.text, selectable: true),
+                        if (message.note != null) Text(message.note!),
+                        if (message.sources.isNotEmpty)
+                          SourceList(sources: message.sources),
+                      ]))),
+        if (_channelNote != null) Text(_channelNote!),
+        if (_loading) const Center(child: CircularProgressIndicator()),
+        if (!_loading && _conversation!.stage == ConsultationStage.confirming)
+          FilledButton(onPressed: _confirm, child: const Text('信息无误，形成参考结果')),
+      ]);
+    }
     if (_loading) {
       return const Padding(
         padding: EdgeInsets.only(top: 40),
